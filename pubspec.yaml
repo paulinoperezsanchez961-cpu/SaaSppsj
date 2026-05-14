@@ -1,0 +1,66 @@
+name: pos_saas_multi
+description: "Punto de Venta y Gestor E-Commerce SaaS"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Iconos nativos
+  cupertino_icons: ^1.0.8
+  
+  # Generación y lectura de Códigos QR/Barras
+  qr_flutter: ^4.1.0
+  barcode_scan2: ^4.7.2
+  
+  # Motor de PDF e Impresión
+  pdf: ^3.12.0
+  printing: ^5.14.3
+  
+  # Conexión al servidor SaaS (API)
+  http: ^1.6.0
+  http_parser: ^4.1.2
+  
+  # Utilidades de datos
+  intl: ^0.20.2
+  shared_preferences: ^2.5.5
+  path_provider: ^2.1.5
+  
+  # Manejo de imágenes (Subir logos y productos)
+  image_picker: ^1.2.1
+  
+  # Seguridad Biométrica
+  local_auth: ^3.0.1
+  
+  # Motor para simular tienda web (Opcional si lo usas)
+  webview_flutter: ^4.8.0 
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+
+  # 🚨 AQUÍ DECLARAMOS LA CARPETA ASSETS PARA LOS LOGOS
+  assets:
+    - assets/logo.png
+    - assets/logob.png
+
+# ==============================================================
+# 🚨 CONFIGURACIÓN AUTOMÁTICA DE ÍCONOS DE LA APP
+# ==============================================================
+flutter_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/logo.png"
+  windows:
+    generate: true
+    image_path: "assets/logo.png"
