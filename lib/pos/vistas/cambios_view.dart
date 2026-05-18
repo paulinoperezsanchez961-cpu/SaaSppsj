@@ -53,7 +53,11 @@ class _CambiosViewState extends State<CambiosView> {
 
   Future<void> _cargarCatalogoDesdeCerebro() async {
     try {
-      var res = await http.get(Uri.parse('${ApiService.baseUrl}/pos/catalogo'));
+      // 🚨 SAAS FIX: Se añaden los Headers de Seguridad JWT
+      var res = await http.get(
+        Uri.parse('${ApiService.baseUrl}/pos/catalogo'),
+        headers: await ApiService.getAuthHeaders(),
+      );
       if (!mounted) {
         return;
       }
@@ -311,28 +315,38 @@ class _CambiosViewState extends State<CambiosView> {
         final doc = pw.Document();
         pw.MemoryImage? imageLogo;
 
-        // 🚨 SAAAS: DESCARGA DINÁMICA DEL LOGO DEL NEGOCIO (MARCA BLANCA)
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          final String logoUrl = prefs.getString('caja_logo_empresa') ?? '';
-          if (logoUrl.isNotEmpty) {
+        // 🚨 SAAAS: DESCARGA DINÁMICA DE VARIABLES LOCALES
+        final prefs = await SharedPreferences.getInstance();
+        final String logoUrl = prefs.getString('caja_logo_empresa') ?? '';
+        final String nombreEmpresa =
+            prefs.getString('caja_nombre_empresa') ?? 'MI NEGOCIO';
+        final double anchoImpresora =
+            prefs.getDouble('caja_ancho_impresora') ?? 80.0;
+
+        if (logoUrl.isNotEmpty) {
+          try {
             final response = await http.get(Uri.parse(logoUrl));
             if (response.statusCode == 200) {
               imageLogo = pw.MemoryImage(response.bodyBytes);
             }
+          } catch (e) {
+            debugPrint('Aviso Logo Cambio: $e');
           }
-        } catch (e) {
-          debugPrint('Aviso Logo Cambio: $e');
         }
 
         final now = DateTime.now();
         final fechaHora =
-            '${now.day}/${now.month}/${now.year} ${now.hour}:${now.minute}';
+            '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
+        // 🚨 ESCALADO DINÁMICO DE FUENTES SEGÚN IMPRESORA
+        double fBase = anchoImpresora == 58.0 ? 7.0 : 9.0;
+        double fTitle = anchoImpresora == 58.0 ? 11.0 : 14.0;
+        double fSmall = anchoImpresora == 58.0 ? 6.0 : 8.0;
 
         doc.addPage(
           pw.Page(
-            pageFormat: const PdfPageFormat(
-              80 * PdfPageFormat.mm,
+            pageFormat: PdfPageFormat(
+              anchoImpresora * PdfPageFormat.mm,
               double.infinity,
               marginAll: 5 * PdfPageFormat.mm,
             ),
@@ -342,34 +356,46 @@ class _CambiosViewState extends State<CambiosView> {
                 mainAxisSize: pw.MainAxisSize.min,
                 children: [
                   if (imageLogo != null)
-                    pw.Image(imageLogo, width: 40, height: 40),
+                    pw.Image(
+                      imageLogo,
+                      width: anchoImpresora == 58.0 ? 35 : 45,
+                      height: anchoImpresora == 58.0 ? 35 : 45,
+                    ),
                   pw.SizedBox(height: 5),
-                  // 🚨 SAAS: TÍTULO GENÉRICO
+
+                  pw.Text(
+                    nombreEmpresa.toUpperCase(),
+                    style: pw.TextStyle(
+                      fontSize: fTitle,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                    textAlign: pw.TextAlign.center,
+                  ),
                   pw.Text(
                     'TICKET DE CAMBIO',
                     style: pw.TextStyle(
-                      fontSize: 14,
+                      fontSize: fBase,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
                   pw.SizedBox(height: 5),
                   pw.Text(
                     'Fecha: $fechaHora',
-                    style: const pw.TextStyle(fontSize: 8),
+                    style: pw.TextStyle(fontSize: fSmall),
                   ),
                   pw.Divider(borderStyle: pw.BorderStyle.dashed),
 
                   pw.Text(
                     '[ ENTRA AL STOCK ]',
                     style: pw.TextStyle(
-                      fontSize: 10,
+                      fontSize: fBase,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
                   ..._articulosEntran.map(
                     (item) => pw.Text(
                       '${item['sku']} - ${item['nombre']} [Talla: ${item['talla_seleccionada']}]',
-                      style: const pw.TextStyle(fontSize: 8),
+                      style: pw.TextStyle(fontSize: fSmall),
                     ),
                   ),
 
@@ -377,14 +403,14 @@ class _CambiosViewState extends State<CambiosView> {
                   pw.Text(
                     '[ SALE AL CLIENTE ]',
                     style: pw.TextStyle(
-                      fontSize: 10,
+                      fontSize: fBase,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
                   ..._articulosSalen.map(
                     (item) => pw.Text(
                       '${item['sku']} - ${item['nombre']} [Talla: ${item['talla_seleccionada']}]',
-                      style: const pw.TextStyle(fontSize: 8),
+                      style: pw.TextStyle(fontSize: fSmall),
                     ),
                   ),
 
@@ -392,22 +418,21 @@ class _CambiosViewState extends State<CambiosView> {
                   pw.Text(
                     'MOTIVO DEL CAMBIO:',
                     style: pw.TextStyle(
-                      fontSize: 8,
+                      fontSize: fSmall,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
                   pw.Text(
                     _motivoController.text.trim(),
-                    style: const pw.TextStyle(fontSize: 8),
+                    style: pw.TextStyle(fontSize: fSmall),
                   ),
-                  pw.SizedBox(height: 10),
+                  pw.SizedBox(height: 15 * PdfPageFormat.mm),
                 ],
               );
             },
           ),
         );
 
-        // 🚨 SAAS: NOMBRE DE ARCHIVO GENÉRICO
         await Printing.layoutPdf(
           onLayout: (PdfPageFormat format) async => doc.save(),
           name: 'Ticket_Cambio',

@@ -18,7 +18,7 @@ class _InteligenciaArtificialViewState
   final List<Map<String, dynamic>> _mensajes = [
     {
       "texto":
-          "Hola. Soy tu IA Ejecutiva. He sido conectada a la base de datos de tu empresa con Visión Total.\n\nLeo en milisegundos tu inventario completo (SKUs, tallas, stock), cortes de caja y cada venta que entra en el día. Hazme preguntas precisas.",
+          "Hola. Soy tu IA Ejecutiva. He sido conectada a la base de datos de tu empresa con Visión Total.\n\nLeo en milisegundos tu inventario completo (SKUs, tallas, stock por sucursal), cortes de caja y cada venta que entra en el día en toda tu red de tiendas. Hazme preguntas precisas.",
       "esUsuario": false,
     },
   ];
@@ -35,7 +35,7 @@ class _InteligenciaArtificialViewState
     });
   }
 
-  // 🚨 EL CEREBRO ULTRA PRECISO (Formateado para que Gemini lo entienda matemáticamente)
+  // 🚨 EL CEREBRO ULTRA PRECISO (Adaptado al SaaS Multi-Sucursal)
   Future<String> _armarContextoProfundo() async {
     try {
       final resultados = await Future.wait([
@@ -52,38 +52,40 @@ class _InteligenciaArtificialViewState
 
       // INSTRUCCIONES ESTRICTAS PARA LA IA
       ctx.writeln(
-        "INSTRUCCIÓN CRÍTICA DE SISTEMA: Eres una IA Ejecutiva de Análisis de Datos para esta empresa. A continuación se te proporciona un volcado de base de datos en tiempo real. REGLAS: 1) Sé ultra preciso y matemático. 2) NUNCA inventes datos. Si algo no está en el contexto, di que no hay registro. 3) Usa las cantidades y SKUs exactos provistos.\n",
+        "INSTRUCCIÓN CRÍTICA DE SISTEMA: Eres una IA Ejecutiva de Análisis de Datos para esta empresa. A continuación se te proporciona un volcado de base de datos en tiempo real de TODAS LAS SUCURSALES. REGLAS: 1) Sé ultra preciso y matemático. 2) NUNCA inventes datos. Si algo no está en el contexto, di que no hay registro. 3) Usa las cantidades, sucursales y SKUs exactos provistos.\n",
       );
 
-      // 1. INVENTARIO
-      ctx.writeln("--- INVENTARIO ACTUALIZADO AL SEGUNDO ---");
+      // 1. INVENTARIO (Ahora incluye desglose de sucursales)
+      ctx.writeln("--- INVENTARIO OMNICANAL ACTUALIZADO AL SEGUNDO ---");
       if (inventario.isEmpty) {
         ctx.writeln("INVENTARIO VACÍO: 0 productos.");
       } else {
         for (var p in inventario) {
           ctx.writeln(
-            "[SKU: ${p['sku']}] Producto: '${p['nombre']}' | Categoría: '${p['categoria'] ?? 'N/A'}' | Stock Físico: ${p['stock_bodega']} unidades | Desglose por Tallas: ${p['tallas']} | Precio Lista: \$${p['precio_venta']}",
+            "[SKU: ${p['sku']}] Producto: '${p['nombre']}' | Stock Global: ${p['stock_bodega']} unidades | Desglose Sucursales/Tallas: ${p['tallas']} | Precio: \$${p['precio_venta']}",
           );
         }
       }
 
-      // 2. VENTAS Y MOVIMIENTOS
-      ctx.writeln("\n--- MOVIMIENTOS DE HOY ---");
+      // 2. VENTAS Y MOVIMIENTOS (Aislados por sucursal)
+      ctx.writeln("\n--- MOVIMIENTOS DE HOY EN TODA LA RED ---");
       if (ventasHoy.isEmpty) {
         ctx.writeln("Sin movimientos registrados hoy.");
       } else {
         double totalHoy = 0.0;
         for (var v in ventasHoy) {
           ctx.writeln(
-            "[HORA: ${v['hora_fmt']}] TIPO_MOVIMIENTO: ${v['tipo']} | MONTO: \$${v['monto']} | MÉTODO: ${v['metodo_pago'] ?? 'Efectivo'} | DESCRIPCIÓN EXACTA: ${v['descripcion']}",
+            "[SUCURSAL: ${v['sucursal_nombre'] ?? 'General'}] [HORA: ${v['hora_fmt']}] TIPO: ${v['tipo']} | MONTO: \$${v['monto']} | MÉTODO: ${v['metodo_pago'] ?? 'Efectivo'} | DESCRIPCIÓN: ${v['descripcion']}",
           );
           totalHoy += double.tryParse(v['monto'].toString()) ?? 0.0;
         }
-        ctx.writeln(">> FLUJO BRUTO DEL DÍA: \$${totalHoy.toStringAsFixed(2)}");
+        ctx.writeln(
+          ">> FLUJO BRUTO DEL DÍA EN LA RED: \$${totalHoy.toStringAsFixed(2)}",
+        );
       }
 
       // 3. CORTES HISTÓRICOS
-      ctx.writeln("\n--- HISTÓRICO RECIENTE DE CAJA (CORTES) ---");
+      ctx.writeln("\n--- HISTÓRICO RECIENTE DE CAJA (CORTES POR SUCURSAL) ---");
       if (cortes.isEmpty) {
         ctx.writeln("Sin cortes en registro.");
       } else {
@@ -91,7 +93,7 @@ class _InteligenciaArtificialViewState
         for (int i = 0; i < limite; i++) {
           var c = cortes[i];
           ctx.writeln(
-            "[FECHA: ${c['fecha_formateada']}] Cajero: ${c['cajero']} | Ventas Totales: \$${c['ventas_totales']} (Efectivo: \$${c['ventas_efectivo']}, Tarjeta: \$${c['ventas_tarjeta']}) | Gastos Extraídos: \$${c['gastos_totales']}",
+            "[FECHA: ${c['fecha_formateada']}] [SUCURSAL: ${c['sucursal_nombre'] ?? 'General'}] Cajero: ${c['cajero']} | Ventas Totales: \$${c['ventas_totales']} (Ef: \$${c['ventas_efectivo']}, Tarj: \$${c['ventas_tarjeta']}) | Gastos: \$${c['gastos_totales']}",
           );
         }
       }
@@ -106,7 +108,9 @@ class _InteligenciaArtificialViewState
 
   Future<void> _enviarMensaje() async {
     final String preguntaVisual = _mensajeController.text.trim();
-    if (preguntaVisual.isEmpty) return;
+    if (preguntaVisual.isEmpty) {
+      return;
+    }
 
     setState(() {
       _mensajes.add({"texto": preguntaVisual, "esUsuario": true});
@@ -122,7 +126,10 @@ class _InteligenciaArtificialViewState
       preguntaConContexto,
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
+
     setState(() {
       _estaCargando = false;
       _mensajes.add({"texto": respuesta, "esUsuario": false});
@@ -205,7 +212,7 @@ class _InteligenciaArtificialViewState
                             SizedBox(width: 10),
                             Flexible(
                               child: Text(
-                                "Cruzando datos operativos de la sucursal y analizando...",
+                                "Cruzando datos de la red de sucursales y analizando...",
                                 style: TextStyle(
                                   color: Colors.deepPurple,
                                   fontSize: 12,
@@ -226,7 +233,7 @@ class _InteligenciaArtificialViewState
                               controller: _mensajeController,
                               decoration: const InputDecoration(
                                 hintText:
-                                    'Ej. ¿Cuántas playeras tenemos y cuáles son sus SKUs?',
+                                    'Ej. ¿Cuál fue la sucursal que más vendió hoy?',
                                 border: OutlineInputBorder(),
                                 filled: true,
                                 fillColor: Color(0xFFF9F9F9),

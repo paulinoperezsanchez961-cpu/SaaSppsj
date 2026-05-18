@@ -25,8 +25,22 @@ class _RegistroGastosViewState extends State<RegistroGastosView> {
     _cargarGastosMemoria();
   }
 
+  // 🚨 CORRECCIÓN 1: Evitar fuga de memoria destruyendo los controladores
+  @override
+  void dispose() {
+    _conceptoController.dispose();
+    _montoController.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargarGastosMemoria() async {
     final prefs = await SharedPreferences.getInstance();
+
+    // 🚨 CORRECCIÓN 2: Evitar redibujar un widget que ya no existe en pantalla
+    if (!mounted) {
+      return;
+    }
+
     final String? gastosStr = prefs.getString('caja_lista_gastos');
 
     if (gastosStr != null) {

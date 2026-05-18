@@ -121,6 +121,10 @@ class _InventarioStockViewState extends State<InventarioStockView> {
         'POST',
         Uri.parse('${ApiService.baseUrl}/pos/actualizar-foto/$idProducto'),
       );
+
+      // 🚨 CORRECCIÓN SAAS: Inyección del Token JWT para permisos de cámara/galería
+      request.headers.addAll(await ApiService.getMultipartAuthHeaders());
+
       request.files.add(
         http.MultipartFile.fromBytes(
           'foto',
@@ -132,7 +136,6 @@ class _InventarioStockViewState extends State<InventarioStockView> {
 
       var response = await http.Response.fromStream(await request.send());
 
-      // 🚨 Guardia de seguridad antes del contexto
       if (!mounted) {
         return;
       }
@@ -1121,6 +1124,78 @@ class _InventarioStockViewState extends State<InventarioStockView> {
                             prod['url_foto_principal'],
                           );
 
+                          // 🚨 OPTIMIZACIÓN: Los botones ahora están envueltos en un Wrap
+                          Widget botonesAccion = Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.black,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 0,
+                                  ),
+                                ),
+                                icon: const Icon(Icons.print, size: 14),
+                                label: const Text(
+                                  'REIMPRIMIR',
+                                  style: TextStyle(fontSize: 10),
+                                ),
+                                onPressed: () => _reimprimirEtiquetas(prod),
+                              ),
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.green,
+                                  side: const BorderSide(color: Colors.green),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 0,
+                                  ),
+                                ),
+                                icon: const Icon(Icons.add_box, size: 14),
+                                label: const Text(
+                                  'AJUSTE STOCK',
+                                  style: TextStyle(fontSize: 10),
+                                ),
+                                onPressed: () => _abrirGestorResurtido(prod),
+                              ),
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 0,
+                                  ),
+                                ),
+                                icon: const Icon(Icons.camera_alt, size: 14),
+                                label: const Text(
+                                  'CAMBIAR FOTO',
+                                  style: TextStyle(fontSize: 10),
+                                ),
+                                onPressed: () =>
+                                    _actualizarFotoProducto(prod['id']),
+                              ),
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.red,
+                                  side: const BorderSide(color: Colors.red),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 0,
+                                  ),
+                                ),
+                                icon: const Icon(Icons.delete, size: 14),
+                                label: const Text(
+                                  'ELIMINAR',
+                                  style: TextStyle(fontSize: 10),
+                                ),
+                                onPressed: () =>
+                                    _solicitarClaveParaEliminar(prod),
+                              ),
+                            ],
+                          );
+
                           return Card(
                             elevation: 0,
                             shape: RoundedRectangleBorder(
@@ -1129,158 +1204,162 @@ class _InventarioStockViewState extends State<InventarioStockView> {
                             ),
                             child: Padding(
                               padding: const EdgeInsets.all(16.0),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  GestureDetector(
-                                    onTap: () =>
-                                        _verImagen(fotoUrl, prod['sku']),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.network(
-                                        fotoUrl,
-                                        width: 80,
-                                        height: 80,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (c, e, s) => Container(
-                                          width: 80,
-                                          height: 80,
-                                          color: Colors.grey.shade200,
-                                          child: const Icon(
-                                            Icons.image_not_supported,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 20),
-                                  Expanded(
-                                    child: Column(
+                              child: isMobile
+                                  // 🚨 FIX: La tarjeta ahora es responsiva en móviles y apila hacia abajo para evitar overflow
+                                  ? Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          prod['nombre'] ?? 'Prenda',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16,
-                                          ),
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            GestureDetector(
+                                              onTap: () => _verImagen(
+                                                fotoUrl,
+                                                prod['sku'],
+                                              ),
+                                              child: ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                child: Image.network(
+                                                  fotoUrl,
+                                                  width: 60,
+                                                  height: 60,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (c, e, s) =>
+                                                      Container(
+                                                        width: 60,
+                                                        height: 60,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade200,
+                                                        child: const Icon(
+                                                          Icons
+                                                              .image_not_supported,
+                                                          color: Colors.grey,
+                                                        ),
+                                                      ),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 16),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    prod['nombre'] ?? 'Prenda',
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 16,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    'SKU: ${prod['sku']}',
+                                                    style: const TextStyle(
+                                                      color: Colors.grey,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            Text(
+                                              '${prod['stock_bodega']} pzs',
+                                              style: const TextStyle(
+                                                color: Colors.black87,
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        Text(
-                                          'SKU: ${prod['sku']}',
-                                          style: const TextStyle(
-                                            color: Colors.grey,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 10),
-
-                                        // 🚨 DESGLOSE VISUAL DE STOCK POR SUCURSAL
+                                        const SizedBox(height: 12),
                                         _construirDesglosePorSucursal(
                                           prod['tallas'],
                                         ),
+                                        const SizedBox(height: 16),
+                                        botonesAccion,
+                                      ],
+                                    )
+                                  : Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        GestureDetector(
+                                          onTap: () =>
+                                              _verImagen(fotoUrl, prod['sku']),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            child: Image.network(
+                                              fotoUrl,
+                                              width: 80,
+                                              height: 80,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (c, e, s) =>
+                                                  Container(
+                                                    width: 80,
+                                                    height: 80,
+                                                    color: Colors.grey.shade200,
+                                                    child: const Icon(
+                                                      Icons.image_not_supported,
+                                                      color: Colors.grey,
+                                                    ),
+                                                  ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 20),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                prod['nombre'] ?? 'Prenda',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 16,
+                                                ),
+                                              ),
+                                              Text(
+                                                'SKU: ${prod['sku']}',
+                                                style: const TextStyle(
+                                                  color: Colors.grey,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 10),
+
+                                              _construirDesglosePorSucursal(
+                                                prod['tallas'],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              'Stock Global: ${prod['stock_bodega']}',
+                                              style: const TextStyle(
+                                                color: Colors.black87,
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 10),
+                                            botonesAccion,
+                                          ],
+                                        ),
                                       ],
                                     ),
-                                  ),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Text(
-                                        'Stock Global: ${prod['stock_bodega']}',
-                                        style: const TextStyle(
-                                          color: Colors.black87,
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      ElevatedButton.icon(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.black,
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 0,
-                                          ),
-                                        ),
-                                        icon: const Icon(Icons.print, size: 14),
-                                        label: const Text(
-                                          'REIMPRIMIR',
-                                          style: TextStyle(fontSize: 10),
-                                        ),
-                                        onPressed: () =>
-                                            _reimprimirEtiquetas(prod),
-                                      ),
-                                      const SizedBox(height: 5),
-                                      OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.green,
-                                          side: const BorderSide(
-                                            color: Colors.green,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 0,
-                                          ),
-                                        ),
-                                        icon: const Icon(
-                                          Icons.add_box,
-                                          size: 14,
-                                        ),
-                                        label: const Text(
-                                          'AJUSTE STOCK',
-                                          style: TextStyle(fontSize: 10),
-                                        ),
-                                        onPressed: () =>
-                                            _abrirGestorResurtido(prod),
-                                      ),
-                                      const SizedBox(height: 5),
-                                      OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 0,
-                                          ),
-                                        ),
-                                        icon: const Icon(
-                                          Icons.camera_alt,
-                                          size: 14,
-                                        ),
-                                        label: const Text(
-                                          'CAMBIAR FOTO',
-                                          style: TextStyle(fontSize: 10),
-                                        ),
-                                        onPressed: () =>
-                                            _actualizarFotoProducto(prod['id']),
-                                      ),
-                                      const SizedBox(height: 5),
-                                      OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.red,
-                                          side: const BorderSide(
-                                            color: Colors.red,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 0,
-                                          ),
-                                        ),
-                                        icon: const Icon(
-                                          Icons.delete,
-                                          size: 14,
-                                        ),
-                                        label: const Text(
-                                          'ELIMINAR',
-                                          style: TextStyle(fontSize: 10),
-                                        ),
-                                        onPressed: () =>
-                                            _solicitarClaveParaEliminar(prod),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
                             ),
                           );
                         },

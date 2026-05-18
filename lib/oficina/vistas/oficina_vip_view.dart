@@ -3,8 +3,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart'
-    as http; // 🚨 IMPORTANTE PARA DESCARGAR EL LOGO DINÁMICO
+import 'package:http/http.dart' as http;
+
 import '../../services/api_service.dart';
 
 class OficinaVipView extends StatefulWidget {
@@ -21,6 +21,10 @@ class _OficinaVipViewState extends State<OficinaVipView> {
   double _plTar = 2.0, _orTar = 5.0, _tiTar = 8.0;
 
   List<dynamic> _clientes = [];
+  List<dynamic> _clientesFiltrados =
+      []; // 🚨 NUEVO: Para el buscador inteligente
+  final TextEditingController _buscadorCtrl = TextEditingController();
+
   bool _cargandoTodo = true;
   bool _guardando = false;
 
@@ -30,9 +34,16 @@ class _OficinaVipViewState extends State<OficinaVipView> {
     _cargarDatos();
   }
 
+  @override
+  void dispose() {
+    _buscadorCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargarDatos() async {
     final config = await ApiService.obtenerConfiguracionVIP();
     final clientes = await ApiService.obtenerClientesVIP();
+
     if (mounted) {
       setState(() {
         if (config.isNotEmpty) {
@@ -71,13 +82,33 @@ class _OficinaVipViewState extends State<OficinaVipView> {
               8.0;
         }
         _clientes = clientes;
+        _clientesFiltrados = clientes;
         _cargandoTodo = false;
       });
     }
   }
 
+  // 🚨 NUEVO: Motor de Búsqueda Dinámico
+  void _filtrarClientes(String query) {
+    if (query.isEmpty) {
+      setState(() => _clientesFiltrados = List.from(_clientes));
+      return;
+    }
+    final q = query.toLowerCase();
+    setState(() {
+      _clientesFiltrados = _clientes.where((c) {
+        final nombre = (c['nombre'] ?? '').toString().toLowerCase();
+        final nivel = (c['nivel_vip'] ?? '').toString().toLowerCase();
+        return nombre.contains(q) || nivel.contains(q);
+      }).toList();
+    });
+  }
+
   Future<void> _guardarConfiguracion() async {
-    setState(() => _guardando = true);
+    setState(() {
+      _guardando = true;
+    });
+
     final exito = await ApiService.guardarConfiguracionVIP(
       _bonoBienvenida,
       _plEfe,
@@ -87,8 +118,15 @@ class _OficinaVipViewState extends State<OficinaVipView> {
       _tiEfe,
       _tiTar,
     );
-    if (!mounted) return;
-    setState(() => _guardando = false);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _guardando = false;
+    });
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -110,7 +148,7 @@ class _OficinaVipViewState extends State<OficinaVipView> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctxDialog, false),
-            child: const Text('Cancelar'),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
@@ -123,18 +161,125 @@ class _OficinaVipViewState extends State<OficinaVipView> {
         ],
       ),
     );
+
     if (confirmar == true) {
       final exito = await ApiService.eliminarClienteVIP(id);
-      if (exito) _cargarDatos();
+      if (exito) {
+        _cargarDatos();
+      }
+    }
+  }
+
+  // 🚨 NUEVO: Conexión con el endpoint "huérfano" de la API
+  Future<void> _hacerSorteo(String nivel) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) =>
+          const Center(child: CircularProgressIndicator(color: Colors.white)),
+    );
+
+    final res = await ApiService.sortearVIP(nivel);
+
+    if (!mounted) {
+      return;
+    }
+    Navigator.pop(context);
+
+    if (res['exito'] == true && res['ganador'] != null) {
+      final ganador = res['ganador'];
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.celebration, color: Colors.deepPurple, size: 30),
+              SizedBox(width: 10),
+              Text(
+                '¡TENEMOS GANADOR!',
+                style: TextStyle(
+                  color: Colors.deepPurple,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('El sistema ha elegido al azar al siguiente cliente:'),
+              const SizedBox(height: 20),
+              Text(
+                ganador['nombre'].toString().toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 5),
+              Chip(
+                label: Text(
+                  ganador['nivel_vip'].toString().toUpperCase(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                backgroundColor: Colors.deepPurple,
+              ),
+              const SizedBox(height: 15),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.phone),
+                title: const Text('Teléfono'),
+                subtitle: Text(
+                  ganador['telefono']?.toString() ?? 'No registrado',
+                ),
+                dense: true,
+              ),
+              ListTile(
+                leading: const Icon(Icons.email),
+                title: const Text('Correo'),
+                subtitle: Text(ganador['email']?.toString() ?? 'No registrado'),
+                dense: true,
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('¡EXCELENTE!'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No hay suficientes clientes activos en el nivel ${nivel.toUpperCase()} para hacer un sorteo.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
     }
   }
 
   // ===========================================================================
-  // 🏭 FASE 1: GENERADOR DE LOTES DE STOCK (TARJETAS GENÉRICAS SAAS)
+  // 🏭 FASE 1: GENERADOR DE LOTES DE STOCK (SÓLO PVC CR80)
   // ===========================================================================
 
   void _mostrarDialogoLotes(String nivel) {
     TextEditingController cantidadCtrl = TextEditingController(text: '50');
+
     showDialog(
       context: context,
       builder: (BuildContext ctxDialog) => AlertDialog(
@@ -142,9 +287,10 @@ class _OficinaVipViewState extends State<OficinaVipView> {
         title: Text('Generar Lote: Tarjeta ${nivel.toUpperCase()}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Ingresa la cantidad de tarjetas vírgenes para stock.',
+              'Ingresa la cantidad de tarjetas vírgenes a mandar a imprenta.',
               style: TextStyle(fontSize: 13, color: Colors.grey),
             ),
             const SizedBox(height: 20),
@@ -156,6 +302,27 @@ class _OficinaVipViewState extends State<OficinaVipView> {
                 labelText: 'Cantidad a imprimir',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.style),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 15),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Se generará un PDF en tamaño Tarjeta de Crédito (CR80) estándar.',
+                      style: TextStyle(fontSize: 11, color: Colors.blue),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -163,7 +330,7 @@ class _OficinaVipViewState extends State<OficinaVipView> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctxDialog),
-            child: const Text('Cancelar'),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -185,7 +352,10 @@ class _OficinaVipViewState extends State<OficinaVipView> {
   }
 
   Future<void> _generarLotePDF(String nivel, int cantidad) async {
-    setState(() => _guardando = true);
+    setState(() {
+      _guardando = true;
+    });
+
     final pdf = pw.Document();
 
     PdfColor bgColor = const PdfColor.fromInt(0xFFE8E8E8); // Plata
@@ -198,9 +368,10 @@ class _OficinaVipViewState extends State<OficinaVipView> {
       prefijo = '2';
     }
 
-    // 🚨 DESCARGA DINÁMICA DEL LOGO DE LA EMPRESA DESDE SHAREDPREFERENCES
     final prefs = await SharedPreferences.getInstance();
     final String logoUrl = prefs.getString('caja_logo_empresa') ?? '';
+    final String nombreEmpresa =
+        prefs.getString('caja_nombre_empresa') ?? 'SISTEMA VIP';
 
     pw.MemoryImage? logoImage;
     if (logoUrl.isNotEmpty) {
@@ -218,7 +389,7 @@ class _OficinaVipViewState extends State<OficinaVipView> {
       final String uniqueId =
           "$prefijo-${DateTime.now().microsecondsSinceEpoch.toString().substring(8)}-${(100 + (i % 899))}";
 
-      // CARA A
+      // Frente de la Tarjeta
       pdf.addPage(
         pw.Page(
           pageFormat: const PdfPageFormat(
@@ -246,15 +417,14 @@ class _OficinaVipViewState extends State<OficinaVipView> {
                         pw.Image(logoImage, width: 65, height: 65)
                       else
                         pw.Text(
-                          "VIP",
+                          nombreEmpresa,
                           style: pw.TextStyle(
-                            fontSize: 30,
+                            fontSize: 16,
                             fontWeight: pw.FontWeight.bold,
                             color: accentColor,
                           ),
                         ),
                       pw.SizedBox(height: 18),
-                      // 🚨 TEXTO GENÉRICO DE MARCA BLANCA
                       pw.Text(
                         "CLIENTE DISTINGUIDO",
                         style: pw.TextStyle(
@@ -273,7 +443,7 @@ class _OficinaVipViewState extends State<OficinaVipView> {
         ),
       );
 
-      // CARA B
+      // Reverso de la Tarjeta
       pdf.addPage(
         pw.Page(
           pageFormat: const PdfPageFormat(
@@ -297,7 +467,6 @@ class _OficinaVipViewState extends State<OficinaVipView> {
                 child: pw.Column(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    // 🚨 TEXTO GENÉRICO DE MARCA BLANCA
                     pw.Text(
                       "PRESENTA ESTA TARJETA PARA OBTENER TUS BENEFICIOS",
                       style: pw.TextStyle(
@@ -338,13 +507,52 @@ class _OficinaVipViewState extends State<OficinaVipView> {
       );
     }
 
-    if (mounted) setState(() => _guardando = false);
-    await Printing.layoutPdf(onLayout: (PdfPageFormat format) => pdf.save());
+    if (mounted) {
+      setState(() {
+        _guardando = false;
+      });
+    }
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name: 'Lotes_VIP_$nivel',
+    );
   }
 
   // ===========================================================================
   // 👑 REIMPRESIÓN TITANIO (EDICIÓN ESPECIAL PERSONALIZADA SAAS)
   // ===========================================================================
+
+  void _prepararImpresionTitanio(dynamic cliente) {
+    showDialog(
+      context: context,
+      builder: (BuildContext ctxDialog) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Imprimir Tarjeta Titanio Black'),
+        content: const Text(
+          'Se generará el archivo PDF en formato estándar PVC de Tarjeta de Crédito (CR80) listo para imprenta.',
+          style: TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctxDialog),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.pop(ctxDialog);
+              _generarPdfTitanioPersonalizada(cliente);
+            },
+            child: const Text('GENERAR PDF'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _generarPdfTitanioPersonalizada(dynamic cliente) async {
     final pdf = pw.Document();
@@ -361,9 +569,10 @@ class _OficinaVipViewState extends State<OficinaVipView> {
     PdfColor accentColorMuted = const PdfColor(0.96, 0.96, 0.96, 0.7);
     PdfColor borderOpacity = const PdfColor(0.95, 0.95, 0.95, 0.3);
 
-    // 🚨 DESCARGA DINÁMICA DEL LOGO DE LA EMPRESA
     final prefs = await SharedPreferences.getInstance();
     final String logoUrl = prefs.getString('caja_logo_empresa') ?? '';
+    final String nombreEmpresa =
+        prefs.getString('caja_nombre_empresa') ?? 'SISTEMA VIP';
 
     pw.MemoryImage? logoImage;
     if (logoUrl.isNotEmpty) {
@@ -377,7 +586,7 @@ class _OficinaVipViewState extends State<OficinaVipView> {
       }
     }
 
-    // FRENTE
+    // FRENTE PVC (CR80: 85.6 x 53.98 mm)
     pdf.addPage(
       pw.Page(
         pageFormat: const PdfPageFormat(
@@ -405,8 +614,12 @@ class _OficinaVipViewState extends State<OficinaVipView> {
                       pw.Image(logoImage, width: 60, height: 60)
                     else
                       pw.Text(
-                        "VIP",
-                        style: pw.TextStyle(fontSize: 30, color: accentColor),
+                        nombreEmpresa,
+                        style: pw.TextStyle(
+                          fontSize: 16,
+                          color: accentColor,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
                       ),
                     pw.SizedBox(height: 15),
                     pw.Text(
@@ -419,7 +632,6 @@ class _OficinaVipViewState extends State<OficinaVipView> {
                       ),
                     ),
                     pw.SizedBox(height: 3),
-                    // 🚨 TEXTO GENÉRICO
                     pw.Text(
                       "SOCIO DISTINGUIDO",
                       style: pw.TextStyle(fontSize: 5, color: accentColorMuted),
@@ -433,7 +645,7 @@ class _OficinaVipViewState extends State<OficinaVipView> {
       ),
     );
 
-    // REVERSO
+    // REVERSO PVC
     pdf.addPage(
       pw.Page(
         pageFormat: const PdfPageFormat(
@@ -457,7 +669,6 @@ class _OficinaVipViewState extends State<OficinaVipView> {
               child: pw.Column(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  // 🚨 TEXTO GENÉRICO
                   pw.Text(
                     "PRESENTA ESTA TARJETA PARA OBTENER TUS BENEFICIOS",
                     style: pw.TextStyle(
@@ -543,7 +754,10 @@ class _OficinaVipViewState extends State<OficinaVipView> {
       ),
     );
 
-    await Printing.layoutPdf(onLayout: (PdfPageFormat format) => pdf.save());
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name: 'Titanio_Black_$nombre',
+    );
   }
 
   // ===========================================================================
@@ -793,7 +1007,7 @@ class _OficinaVipViewState extends State<OficinaVipView> {
                                     Icon(Icons.factory_outlined, size: 20),
                                     SizedBox(width: 8),
                                     Text(
-                                      'FÁBRICA DE TARJETAS (STOCK FÍSICO)',
+                                      'FÁBRICA DE TARJETAS (PVC PARA IMPRENTA)',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w900,
                                         letterSpacing: 1,
@@ -835,102 +1049,199 @@ class _OficinaVipViewState extends State<OficinaVipView> {
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 30),
+                                const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.card_giftcard,
+                                      size: 20,
+                                      color: Colors.deepPurple,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'SORTEOS Y REGALOS VIP',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 1,
+                                        color: Colors.deepPurple,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 15),
+                                Wrap(
+                                  spacing: 10,
+                                  runSpacing: 10,
+                                  children: [
+                                    ElevatedButton.icon(
+                                      icon: const Icon(Icons.casino),
+                                      label: const Text('SORTEO PLATA'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.blueGrey,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () => _hacerSorteo('plata'),
+                                    ),
+                                    ElevatedButton.icon(
+                                      icon: const Icon(Icons.casino),
+                                      label: const Text('SORTEO ORO'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.amber.shade700,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () => _hacerSorteo('oro'),
+                                    ),
+                                    ElevatedButton.icon(
+                                      icon: const Icon(Icons.casino),
+                                      label: const Text('SORTEO TITANIO'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.black,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      onPressed: () => _hacerSorteo('titanio'),
+                                    ),
+                                  ],
+                                ),
                               ],
                             ),
                           ),
                         ),
                         const SizedBox(height: 20),
-                        Card(
-                          elevation: 2,
-                          child: DataTable(
-                            headingRowColor: WidgetStateProperty.all(
-                              Colors.grey.shade200,
+
+                        // 🚨 NUEVO: Buscador de Clientes
+                        TextField(
+                          controller: _buscadorCtrl,
+                          onChanged: _filtrarClientes,
+                          decoration: InputDecoration(
+                            labelText:
+                                'Buscar cliente VIP por nombre o nivel...',
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: _buscadorCtrl.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear),
+                                    onPressed: () {
+                                      _buscadorCtrl.clear();
+                                      _filtrarClientes('');
+                                      FocusScope.of(context).unfocus();
+                                    },
+                                  )
+                                : null,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            columns: const [
-                              DataColumn(label: Text('Nombre')),
-                              DataColumn(label: Text('Nivel')),
-                              DataColumn(label: Text('Saldo')),
-                              DataColumn(label: Text('Compras')),
-                              DataColumn(label: Text('Acciones')),
-                            ],
-                            rows: _clientes
-                                .map(
-                                  (c) => DataRow(
-                                    cells: [
-                                      DataCell(
-                                        Text(
-                                          c['nombre'],
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                      DataCell(
-                                        Chip(
-                                          label: Text(
-                                            c['nivel_vip']
-                                                .toString()
-                                                .toUpperCase(),
-                                            style: const TextStyle(
-                                              fontSize: 10,
-                                            ),
-                                          ),
-                                          backgroundColor:
-                                              c['nivel_vip'] == 'titanio'
-                                              ? Colors.black
-                                              : Colors.grey.shade300,
-                                          labelStyle: TextStyle(
-                                            color: c['nivel_vip'] == 'titanio'
-                                                ? Colors.white
-                                                : Colors.black,
-                                          ),
-                                        ),
-                                      ),
-                                      DataCell(
-                                        Text(
-                                          '\$${c['saldo_cashback']}',
-                                          style: const TextStyle(
-                                            color: Colors.green,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                      DataCell(
-                                        Text(c['compras_totales'].toString()),
-                                      ),
-                                      DataCell(
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            if (c['nivel_vip'] == 'titanio')
-                                              IconButton(
-                                                icon: const Icon(
-                                                  Icons.print,
-                                                  color: Colors.black,
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Card(
+                            elevation: 2,
+                            child: DataTable(
+                              headingRowColor: WidgetStateProperty.all(
+                                Colors.grey.shade200,
+                              ),
+                              columns: const [
+                                DataColumn(label: Text('Nombre')),
+                                DataColumn(label: Text('Nivel')),
+                                DataColumn(label: Text('Saldo')),
+                                DataColumn(label: Text('Compras')),
+                                DataColumn(label: Text('Acciones')),
+                              ],
+                              rows:
+                                  _clientesFiltrados // 🚨 Ahora usa la lista filtrada
+                                      .map(
+                                        (c) => DataRow(
+                                          cells: [
+                                            DataCell(
+                                              SizedBox(
+                                                width: 150,
+                                                child: Text(
+                                                  c['nombre'],
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
                                                 ),
-                                                tooltip:
-                                                    'Imprimir Titanio Black',
-                                                onPressed: () =>
-                                                    _generarPdfTitanioPersonalizada(
-                                                      c,
+                                              ),
+                                            ),
+                                            DataCell(
+                                              Chip(
+                                                label: Text(
+                                                  c['nivel_vip']
+                                                      .toString()
+                                                      .toUpperCase(),
+                                                  style: const TextStyle(
+                                                    fontSize: 10,
+                                                  ),
+                                                ),
+                                                backgroundColor:
+                                                    c['nivel_vip'] == 'titanio'
+                                                    ? Colors.black
+                                                    : Colors.grey.shade300,
+                                                labelStyle: TextStyle(
+                                                  color:
+                                                      c['nivel_vip'] ==
+                                                          'titanio'
+                                                      ? Colors.white
+                                                      : Colors.black,
+                                                ),
+                                              ),
+                                            ),
+                                            DataCell(
+                                              Text(
+                                                '\$${c['saldo_cashback']}',
+                                                style: const TextStyle(
+                                                  color: Colors.green,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                            DataCell(
+                                              Text(
+                                                c['compras_totales'].toString(),
+                                              ),
+                                            ),
+                                            DataCell(
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  if (c['nivel_vip'] ==
+                                                      'titanio')
+                                                    IconButton(
+                                                      icon: const Icon(
+                                                        Icons.print,
+                                                        color: Colors.black,
+                                                      ),
+                                                      tooltip:
+                                                          'Imprimir Titanio Black (PVC)',
+                                                      onPressed: () =>
+                                                          _prepararImpresionTitanio(
+                                                            c,
+                                                          ),
                                                     ),
+                                                  IconButton(
+                                                    icon: const Icon(
+                                                      Icons.delete,
+                                                      color: Colors.red,
+                                                    ),
+                                                    tooltip: 'Eliminar',
+                                                    onPressed: () =>
+                                                        _eliminarCliente(
+                                                          c['id'],
+                                                        ),
+                                                  ),
+                                                ],
                                               ),
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.delete,
-                                                color: Colors.red,
-                                              ),
-                                              tooltip: 'Eliminar',
-                                              onPressed: () =>
-                                                  _eliminarCliente(c['id']),
                                             ),
                                           ],
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                                .toList(),
+                                      )
+                                      .toList(),
+                            ),
                           ),
                         ),
                       ],

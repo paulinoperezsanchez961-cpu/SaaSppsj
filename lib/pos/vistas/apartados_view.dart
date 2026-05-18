@@ -66,7 +66,11 @@ class _ApartadosViewState extends State<ApartadosView> {
 
   Future<void> _cargarCatalogo() async {
     try {
-      var res = await http.get(Uri.parse('${ApiService.baseUrl}/pos/catalogo'));
+      // 🚨 SAAS FIX: Se agregan los Headers de Autenticación JWT
+      var res = await http.get(
+        Uri.parse('${ApiService.baseUrl}/pos/catalogo'),
+        headers: await ApiService.getAuthHeaders(),
+      );
       if (!mounted) {
         return;
       }
@@ -85,8 +89,10 @@ class _ApartadosViewState extends State<ApartadosView> {
 
   Future<void> _cargarApartados() async {
     try {
+      // 🚨 SAAS FIX: Headers de Autenticación
       var res = await http.get(
         Uri.parse('${ApiService.baseUrl}/pos/apartados'),
+        headers: await ApiService.getAuthHeaders(),
       );
       if (!mounted) {
         return;
@@ -165,7 +171,6 @@ class _ApartadosViewState extends State<ApartadosView> {
         );
       },
     ).then((_) {
-      // 🚨 Candado de Foco
       _buscadorFocus.requestFocus();
     });
   }
@@ -238,7 +243,6 @@ class _ApartadosViewState extends State<ApartadosView> {
         ? _carritoApartado[indexEnCarrito]['cantidad']
         : 0;
 
-    // 🚨 VALIDACIÓN ESTRICTA: Evita robos o alteraciones del stock en apartados
     if (stockDisponible <= cantidadActual) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -251,7 +255,6 @@ class _ApartadosViewState extends State<ApartadosView> {
       return;
     }
 
-    // 🚨 Confirmación sensorial para la cajera
     HapticFeedback.lightImpact();
 
     setState(() {
@@ -280,7 +283,6 @@ class _ApartadosViewState extends State<ApartadosView> {
     });
   }
 
-  // 🚨 OPTIMIZACIÓN: Modificar cantidades en vivo con botones (+/-)
   void _modificarCantidad(int index, int delta) {
     setState(() {
       int nuevaCant = _carritoApartado[index]['cantidad'] + delta;
@@ -346,7 +348,7 @@ class _ApartadosViewState extends State<ApartadosView> {
     }
 
     String codigoIngresado = _cuponController.text.trim().toUpperCase();
-    final sm = ScaffoldMessenger.of(context); // 🚨 Capturado para evitar linter
+    final sm = ScaffoldMessenger.of(context);
 
     if (codigoIngresado.isEmpty) {
       setState(() {
@@ -365,14 +367,12 @@ class _ApartadosViewState extends State<ApartadosView> {
     }
 
     try {
-      var res = await http.get(
-        Uri.parse('${ApiService.baseUrl}/cupones/validar/$codigoIngresado'),
-      );
+      // 🚨 OPTIMIZACIÓN: Se usa la clase centralizada de red con headers
+      var data = await ApiService.validarCupon(codigoIngresado);
+
       if (!mounted) {
         return;
       }
-
-      var data = jsonDecode(res.body);
 
       if (data['valido'] == true) {
         setState(() {
@@ -450,7 +450,6 @@ class _ApartadosViewState extends State<ApartadosView> {
       context: context,
       barrierDismissible: false,
       builder: (BuildContext contextDialog) {
-        // 🚨 BLINDAJE IOS: PopScope evita que el gesto de "atrás" rompa el cobro
         return PopScope(
           canPop: false,
           child: AlertDialog(
@@ -477,9 +476,10 @@ class _ApartadosViewState extends State<ApartadosView> {
     );
 
     try {
+      // 🚨 SAAS FIX: Headers de Autenticación
       var res = await http.post(
         Uri.parse('${ApiService.baseUrl}/pos/mp/cobrar-terminal'),
-        headers: {"Content-Type": "application/json"},
+        headers: await ApiService.getAuthHeaders(),
         body: jsonEncode({"total": montoACobrar}),
       );
 
@@ -498,6 +498,7 @@ class _ApartadosViewState extends State<ApartadosView> {
           try {
             var statusRes = await http.get(
               Uri.parse('${ApiService.baseUrl}/pos/mp/estado-cobro/$intentId'),
+              headers: await ApiService.getAuthHeaders(),
             );
             if (!mounted) {
               timer.cancel();
@@ -603,7 +604,6 @@ class _ApartadosViewState extends State<ApartadosView> {
     }
     double enganche = double.tryParse(_engancheController.text) ?? 0.0;
 
-    // 🚨 BLOQUEO: Si el cliente liquida al instante, debe usar la caja normal
     if (enganche >= _totalApartado) {
       sm.showSnackBar(
         const SnackBar(
@@ -647,19 +647,16 @@ class _ApartadosViewState extends State<ApartadosView> {
 
     final sm = ScaffoldMessenger.of(context);
 
-    // 🚨 APLICAMOS EL DESCUENTO REAL AL CARRITO QUE SE ENVÍA A LA BD
     List<Map<String, dynamic>> carritoAEnviar = _carritoApartado.map((item) {
       var mod = Map<String, dynamic>.from(item);
       mod['precio'] = (mod['precio'] - _descuentoPorPieza).clamp(
         0.0,
         double.infinity,
       );
-      mod['vendedor'] =
-          _vendedorAsociado; // Lo guardamos en el JSON para recuperarlo en el futuro
+      mod['vendedor'] = _vendedorAsociado;
       return mod;
     }).toList();
 
-    // 🚨 CONSTRUIMOS EL NOMBRE MAESTRO (Teléfono + Vendedor)
     String nombreFinalCliente = _clienteController.text.trim();
     if (_telefonoController.text.trim().isNotEmpty) {
       nombreFinalCliente += " (Tel: ${_telefonoController.text.trim()})";
@@ -669,9 +666,10 @@ class _ApartadosViewState extends State<ApartadosView> {
     }
 
     try {
+      // 🚨 SAAS FIX: Headers de Autenticación
       var res = await http.post(
         Uri.parse('${ApiService.baseUrl}/pos/apartados/nuevo'),
-        headers: {"Content-Type": "application/json"},
+        headers: await ApiService.getAuthHeaders(),
         body: jsonEncode({
           "cliente": nombreFinalCliente,
           "carrito": carritoAEnviar,
@@ -781,13 +779,14 @@ class _ApartadosViewState extends State<ApartadosView> {
           ? 0.0
           : (restaAnterior - dineroParaCuenta);
 
+      // 🚨 SAAS FIX: Headers de Autenticación
       await http.post(
         Uri.parse(url),
         body: jsonEncode({
           "pago": dineroParaCuenta,
           "metodo_pago": metodoPagoFinal,
         }),
-        headers: {"Content-Type": "application/json"},
+        headers: await ApiService.getAuthHeaders(),
       );
 
       if (!mounted) {
@@ -1147,12 +1146,11 @@ class _ApartadosViewState extends State<ApartadosView> {
         },
       ),
     ).then((_) {
-      // 🚨 Candado de Foco al salir del modal
       _buscadorFocus.requestFocus();
     });
   }
 
-  // 🚨 ACTUALIZACIÓN DE IMPRESIÓN PARA SAAS MARCA BLANCA
+  // 🚨 ACTUALIZACIÓN DE IMPRESIÓN PARA SAAS MARCA BLANCA Y ESCALADO A 58MM/80MM
   Future<void> _imprimirTicketApartado(
     String titulo,
     String cliente,
@@ -1168,61 +1166,87 @@ class _ApartadosViewState extends State<ApartadosView> {
     final doc = pw.Document();
     pw.MemoryImage? imageLogo;
 
-    // 🚨 DESCARGAMOS EL LOGO DINÁMICO DEL SaaS DESDE MEMORIA
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final String logoUrl = prefs.getString('caja_logo_empresa') ?? '';
+    // 🚨 DESCARGAMOS EL LOGO DINÁMICO Y EL TAMAÑO DESDE MEMORIA
+    final prefs = await SharedPreferences.getInstance();
+    final String logoUrl = prefs.getString('caja_logo_empresa') ?? '';
+    final String nombreEmpresa =
+        prefs.getString('caja_nombre_empresa') ?? 'SISTEMA DE APARTADOS';
+    final double anchoImpresora =
+        prefs.getDouble('caja_ancho_impresora') ?? 80.0;
+    final String mensajePersonalizado =
+        prefs.getString('caja_mensaje_ticket') ?? '¡Gracias por su apartado!';
 
-      if (logoUrl.isNotEmpty) {
+    if (logoUrl.isNotEmpty) {
+      try {
         final response = await http.get(Uri.parse(logoUrl));
         if (response.statusCode == 200) {
           imageLogo = pw.MemoryImage(response.bodyBytes);
         }
+      } catch (e) {
+        debugPrint('Error Logo Apartado: $e');
       }
-    } catch (e) {
-      debugPrint('Error Logo Apartado: $e');
     }
 
     final now = DateTime.now();
     final fecha =
-        '${now.day}/${now.month}/${now.year} ${now.hour}:${now.minute}';
+        '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
+    // 🚨 Escalado Inteligente
+    double fBase = anchoImpresora == 58.0 ? 7.0 : 9.0;
+    double fTitle = anchoImpresora == 58.0 ? 11.0 : 14.0;
+    double fSmall = anchoImpresora == 58.0 ? 6.0 : 8.0;
 
     doc.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(
-          80 * PdfPageFormat.mm,
+        pageFormat: PdfPageFormat(
+          anchoImpresora * PdfPageFormat.mm,
           double.infinity,
-          marginAll: 5 * PdfPageFormat.mm,
+          marginAll: 2 * PdfPageFormat.mm,
         ),
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             mainAxisSize: pw.MainAxisSize.min,
             children: [
-              if (imageLogo != null) pw.Image(imageLogo, width: 40, height: 40),
+              if (imageLogo != null)
+                pw.Image(
+                  imageLogo,
+                  width: anchoImpresora == 58.0 ? 45 : 60,
+                  height: anchoImpresora == 58.0 ? 45 : 60,
+                ),
               pw.SizedBox(height: 5),
-              // 🚨 SE QUITA EL TEXTO DURO "JP JEANS" Y SE DEJA EL TÍTULO DEL TICKET COMO PRINCIPAL
+              // 🚨 TÍTULO DE LA EMPRESA
+              pw.Text(
+                nombreEmpresa.toUpperCase(),
+                style: pw.TextStyle(
+                  fontSize: fTitle,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+                textAlign: pw.TextAlign.center,
+              ),
+              pw.SizedBox(height: 5),
               pw.Text(
                 titulo,
                 style: pw.TextStyle(
-                  fontSize: 14,
+                  fontSize: fBase,
                   fontWeight: pw.FontWeight.bold,
                 ),
+                textAlign: pw.TextAlign.center,
               ),
               pw.SizedBox(height: 5),
-              pw.Text('Fecha: $fecha', style: const pw.TextStyle(fontSize: 8)),
+              pw.Text('Fecha: $fecha', style: pw.TextStyle(fontSize: fSmall)),
               pw.Text(
                 'Cliente: ${cliente.toUpperCase()}',
                 textAlign: pw.TextAlign.center,
                 style: pw.TextStyle(
-                  fontSize: 10,
+                  fontSize: fBase,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
               pw.Text(
                 'Método: $metodoPago',
                 style: pw.TextStyle(
-                  fontSize: 8,
+                  fontSize: fSmall,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
@@ -1234,19 +1258,23 @@ class _ApartadosViewState extends State<ApartadosView> {
                     pw.Expanded(
                       child: pw.Text(
                         '${item['cantidad']}x ${item['sku'] ?? ''} - ${item['nombre']} [${item['talla']}]',
-                        style: const pw.TextStyle(fontSize: 8),
+                        style: pw.TextStyle(fontSize: fSmall),
                       ),
                     ),
+                    pw.SizedBox(width: 4),
                     pw.Text(
                       '\$${(item['precio'] * item['cantidad']).toStringAsFixed(2)}',
-                      style: const pw.TextStyle(fontSize: 8),
+                      style: pw.TextStyle(
+                        fontSize: fSmall,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
               ),
               pw.Divider(borderStyle: pw.BorderStyle.dashed),
               if (descuentoTxt.isNotEmpty) ...[
-                pw.Text(descuentoTxt, style: const pw.TextStyle(fontSize: 8)),
+                pw.Text(descuentoTxt, style: pw.TextStyle(fontSize: fSmall)),
                 pw.SizedBox(height: 5),
               ],
               pw.Row(
@@ -1255,14 +1283,14 @@ class _ApartadosViewState extends State<ApartadosView> {
                   pw.Text(
                     'TOTAL ORIGINAL',
                     style: pw.TextStyle(
-                      fontSize: 10,
+                      fontSize: fBase,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
                   pw.Text(
                     '\$${total.toStringAsFixed(2)}',
                     style: pw.TextStyle(
-                      fontSize: 10,
+                      fontSize: fBase,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
@@ -1271,13 +1299,10 @@ class _ApartadosViewState extends State<ApartadosView> {
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text(
-                    'SU PAGO HOY',
-                    style: const pw.TextStyle(fontSize: 10),
-                  ),
+                  pw.Text('SU PAGO HOY', style: pw.TextStyle(fontSize: fBase)),
                   pw.Text(
                     '\$${pagoActual.toStringAsFixed(2)}',
-                    style: const pw.TextStyle(fontSize: 10),
+                    style: pw.TextStyle(fontSize: fBase),
                   ),
                 ],
               ),
@@ -1287,14 +1312,14 @@ class _ApartadosViewState extends State<ApartadosView> {
                   pw.Text(
                     'RESTA POR PAGAR',
                     style: pw.TextStyle(
-                      fontSize: 12,
+                      fontSize: fTitle,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
                   pw.Text(
                     '\$${resta.toStringAsFixed(2)}',
                     style: pw.TextStyle(
-                      fontSize: 12,
+                      fontSize: fTitle,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
@@ -1307,21 +1332,21 @@ class _ApartadosViewState extends State<ApartadosView> {
                   children: [
                     pw.Text(
                       'EFECTIVO RECIBIDO',
-                      style: const pw.TextStyle(fontSize: 8),
+                      style: pw.TextStyle(fontSize: fSmall),
                     ),
                     pw.Text(
                       '\$${pagoCliente.toStringAsFixed(2)}',
-                      style: const pw.TextStyle(fontSize: 8),
+                      style: pw.TextStyle(fontSize: fSmall),
                     ),
                   ],
                 ),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text('CAMBIO', style: const pw.TextStyle(fontSize: 8)),
+                    pw.Text('CAMBIO', style: pw.TextStyle(fontSize: fSmall)),
                     pw.Text(
                       '\$${cambio.toStringAsFixed(2)}',
-                      style: const pw.TextStyle(fontSize: 8),
+                      style: pw.TextStyle(fontSize: fSmall),
                     ),
                   ],
                 ),
@@ -1332,15 +1357,23 @@ class _ApartadosViewState extends State<ApartadosView> {
                 pw.Text(
                   'TIENES 20 DÍAS PARA LIQUIDAR.',
                   style: pw.TextStyle(
-                    fontSize: 8,
+                    fontSize: fSmall,
                     fontWeight: pw.FontWeight.bold,
                   ),
+                  textAlign: pw.TextAlign.center,
                 ),
               pw.Text(
                 'NO HAY DEVOLUCIONES.',
-                style: const pw.TextStyle(fontSize: 8),
+                style: pw.TextStyle(fontSize: fSmall),
+                textAlign: pw.TextAlign.center,
               ),
-              pw.SizedBox(height: 10),
+              pw.SizedBox(height: 5),
+              pw.Text(
+                mensajePersonalizado,
+                style: pw.TextStyle(fontSize: fSmall - 1),
+                textAlign: pw.TextAlign.center,
+              ),
+              pw.SizedBox(height: 10 * PdfPageFormat.mm),
             ],
           );
         },
@@ -1388,8 +1421,10 @@ class _ApartadosViewState extends State<ApartadosView> {
         });
       }
       try {
+        // 🚨 SAAS FIX: Headers de Autenticación
         await http.post(
           Uri.parse('${ApiService.baseUrl}/pos/apartados/cancelar/$idApartado'),
+          headers: await ApiService.getAuthHeaders(),
         );
         if (!mounted) {
           return;
@@ -1411,7 +1446,6 @@ class _ApartadosViewState extends State<ApartadosView> {
         }
       }
     }
-    // 🚨 Candado de Foco
     _buscadorFocus.requestFocus();
   }
 

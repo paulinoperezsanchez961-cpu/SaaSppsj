@@ -37,7 +37,7 @@ class _RegistroVipViewState extends State<RegistroVipView> {
     }
     // Forzamos el foco en el campo oculto para que la pistola láser funcione directo
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _qrFocusNode.requestFocus();
+      if (mounted) _qrFocusNode.requestFocus();
     });
   }
 
@@ -57,6 +57,7 @@ class _RegistroVipViewState extends State<RegistroVipView> {
   Future<void> _procesarQR(String qrEscaneado) async {
     final qr = qrEscaneado.trim();
     if (qr.isEmpty) {
+      if (mounted) _qrFocusNode.requestFocus();
       return;
     }
 
@@ -92,10 +93,18 @@ class _RegistroVipViewState extends State<RegistroVipView> {
               backgroundColor: Colors.green,
             ),
           );
+
           setState(() {
             _modo = ModoVista.escanear; // Regresa a la normalidad
             _qrController.clear();
           });
+
+          // 🚨 UX FIX: Si veníamos de la caja (es una ruta empujada), nos regresamos en automático
+          if (widget.qrViejoTraspaso != null && mounted) {
+            Future.delayed(const Duration(seconds: 1), () {
+              if (mounted) Navigator.pop(context);
+            });
+          }
         } else {
           throw Exception(res['error'] ?? 'Error desconocido');
         }
@@ -204,6 +213,7 @@ class _RegistroVipViewState extends State<RegistroVipView> {
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
+        _qrFocusNode.requestFocus();
       }
     }
   }
@@ -234,8 +244,8 @@ class _RegistroVipViewState extends State<RegistroVipView> {
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 30),
-        SizedBox(
-          width: 350,
+        Container(
+          constraints: const BoxConstraints(maxWidth: 350),
           child: TextField(
             controller: _qrController,
             focusNode: _qrFocusNode,
@@ -325,10 +335,13 @@ class _RegistroVipViewState extends State<RegistroVipView> {
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: () => setState(() {
-                  _modo = ModoVista.escanear;
-                  _qrActual = '';
-                }),
+                onPressed: () {
+                  setState(() {
+                    _modo = ModoVista.escanear;
+                    _qrActual = '';
+                  });
+                  _qrFocusNode.requestFocus();
+                },
                 child: const Text(
                   'CANCELAR',
                   style: TextStyle(color: Colors.black),
@@ -389,8 +402,8 @@ class _RegistroVipViewState extends State<RegistroVipView> {
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 30),
-        SizedBox(
-          width: 350,
+        Container(
+          constraints: const BoxConstraints(maxWidth: 350),
           child: TextField(
             controller: _qrController,
             focusNode: _qrFocusNode,
@@ -407,6 +420,16 @@ class _RegistroVipViewState extends State<RegistroVipView> {
           const Padding(
             padding: EdgeInsets.all(20),
             child: CircularProgressIndicator(color: Colors.black),
+          ),
+        const SizedBox(height: 20),
+        // 🚨 UX FIX: Botón de escape por si la cajera no tiene tarjetas vírgenes a la mano
+        if (widget.qrViejoTraspaso != null && !_isLoading)
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'CANCELAR TRASPASO',
+              style: TextStyle(color: Colors.red),
+            ),
           ),
       ],
     );
@@ -510,8 +533,9 @@ class _RegistroVipViewState extends State<RegistroVipView> {
             ),
             child: Padding(
               padding: const EdgeInsets.all(40),
-              child: SizedBox(
-                width: 500, // Una tarjeta blanca limpia en el centro
+              // 🚨 RESPONSIVE FIX: BoxConstraints evita que el contenedor colapse en pantallas de celulares
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 500),
                 child: contenido,
               ),
             ),

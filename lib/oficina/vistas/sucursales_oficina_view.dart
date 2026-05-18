@@ -16,6 +16,16 @@ class _SucursalesOficinaViewState extends State<SucursalesOficinaView> {
 
   bool _guardando = false;
 
+  // 🚨 CORRECCIÓN: Evitar fuga de memoria destruyendo los controladores al salir
+  @override
+  void dispose() {
+    _nombreCtrl.dispose();
+    _direccionCtrl.dispose();
+    _usuarioPosCtrl.dispose();
+    _passwordPosCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _registrarSucursal() async {
     final nombre = _nombreCtrl.text.trim();
     final dir = _direccionCtrl.text.trim();
@@ -34,12 +44,18 @@ class _SucursalesOficinaViewState extends State<SucursalesOficinaView> {
       return;
     }
 
-    setState(() => _guardando = true);
+    setState(() {
+      _guardando = true;
+    });
+
     final sm = ScaffoldMessenger.of(context);
 
     final respuesta = await ApiService.crearSucursal(nombre, dir, user, pass);
 
-    if (!mounted) return;
+    // 🚨 CORRECCIÓN LINTER: Llaves obligatorias
+    if (!mounted) {
+      return;
+    }
 
     if (respuesta['exito'] == true) {
       sm.showSnackBar(
@@ -62,7 +78,9 @@ class _SucursalesOficinaViewState extends State<SucursalesOficinaView> {
       );
     }
 
-    setState(() => _guardando = false);
+    setState(() {
+      _guardando = false;
+    });
   }
 
   @override

@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import '../../services/api_service.dart';
 
 // ============================================================================
-// 🚨 VISTA 6: ENVÍOS WEB (CONECTADO A BASE DE DATOS REAL)
+// 🚨 VISTA 6: ENVÍOS WEB (CONECTADO A BASE DE DATOS REAL SAAS)
 // ============================================================================
 class EnviosWebView extends StatefulWidget {
   const EnviosWebView({super.key});
@@ -40,12 +40,19 @@ class _EnviosWebViewState extends State<EnviosWebView> {
   Future<void> _cargarPedidosWeb() async {
     setState(() => _isLoading = true);
     try {
+      // 🚨 SAAS FIX: Headers de Autenticación Inyectados
       final res = await http.get(
         Uri.parse('${ApiService.baseUrl}/bodega/pedidos-pendientes'),
+        headers: await ApiService.getAuthHeaders(),
       );
+
+      if (!mounted) {
+        return;
+      }
+
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        if (data['exito'] == true && mounted) {
+        if (data['exito'] == true) {
           setState(() {
             _pedidosNuevos = data['pedidos'] ?? [];
           });
@@ -61,7 +68,9 @@ class _EnviosWebViewState extends State<EnviosWebView> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -100,15 +109,20 @@ class _EnviosWebViewState extends State<EnviosWebView> {
     );
 
     try {
+      // 🚨 SAAS FIX: Headers de Autenticación Inyectados
       final res = await http.post(
         Uri.parse('${ApiService.baseUrl}/bodega/despachar/$idPedido'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await ApiService.getAuthHeaders(),
         body: jsonEncode({'paqueteria': paqueteria, 'guia_rastreo': guia}),
       );
 
-      final data = jsonDecode(res.body);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
+
       Navigator.pop(context); // Cierra el loader
+
+      final data = jsonDecode(res.body);
 
       if (data['exito'] == true) {
         setState(() {
@@ -134,7 +148,9 @@ class _EnviosWebViewState extends State<EnviosWebView> {
         );
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       Navigator.pop(context); // Cierra el loader
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

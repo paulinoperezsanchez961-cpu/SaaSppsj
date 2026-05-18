@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/api_service.dart';
 
 class ContabilidadCortesView extends StatefulWidget {
@@ -40,7 +41,9 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
     final cortes = await ApiService.obtenerHistorialCortes();
     final gastos = await ApiService.obtenerGastosFijos();
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     // 🚨 EXTRAER SUCURSALES ÚNICAS DEL HISTORIAL DE CORTES
     Set<String> sucursalesSet = {'Todas'};
@@ -107,7 +110,7 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
   }
 
   // =========================================================================
-  // 🖨️ MOTOR DE REIMPRESIÓN DEL CORTE DE CAJA HISTÓRICO
+  // 🖨️ MOTOR DE REIMPRESIÓN DEL CORTE DE CAJA HISTÓRICO (SAAS)
   // =========================================================================
   Future<void> _reimprimirCorteCaja(Map<String, dynamic> c) async {
     final ventasTotales = double.tryParse(c['ventas_totales'].toString()) ?? 0;
@@ -142,20 +145,38 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
 
     final doc = pw.Document();
     pw.MemoryImage? imageLogo;
-    try {
-      imageLogo = pw.MemoryImage(
-        (await rootBundle.load('assets/logo.png')).buffer.asUint8List(),
-      );
-    } catch (e) {
-      debugPrint('Aviso Logo: $e');
+
+    // 🚨 1. CARGAMOS CONFIGURACIÓN SAAS
+    final prefs = await SharedPreferences.getInstance();
+    final String logoUrl = prefs.getString('caja_logo_empresa') ?? '';
+    final String nombreEmpresa =
+        prefs.getString('caja_nombre_empresa') ?? 'MI NEGOCIO';
+    final double anchoImpresora =
+        prefs.getDouble('caja_ancho_impresora') ?? 80.0;
+
+    if (logoUrl.isNotEmpty) {
+      try {
+        final response = await http.get(Uri.parse(logoUrl));
+        if (response.statusCode == 200) {
+          imageLogo = pw.MemoryImage(response.bodyBytes);
+        }
+      } catch (e) {
+        debugPrint('Aviso Logo SaaS: $e');
+      }
     }
 
     final fechaHora = c['fecha_formateada'] ?? 'Sin fecha';
 
+    // 🚨 3. ESCALADO INTELIGENTE SEGÚN IMPRESORA
+    double fBase = anchoImpresora == 58.0 ? 7.0 : 9.0;
+    double fTitle = anchoImpresora == 58.0 ? 11.0 : 14.0;
+    double fSubtitle = anchoImpresora == 58.0 ? 8.0 : 10.0;
+    double fSmall = anchoImpresora == 58.0 ? 6.0 : 8.0;
+
     doc.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(
-          80 * PdfPageFormat.mm,
+        pageFormat: PdfPageFormat(
+          anchoImpresora * PdfPageFormat.mm,
           double.infinity,
           marginAll: 5 * PdfPageFormat.mm,
         ),
@@ -164,21 +185,27 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             mainAxisSize: pw.MainAxisSize.min,
             children: [
-              if (imageLogo != null) pw.Image(imageLogo, width: 40, height: 40),
+              if (imageLogo != null)
+                pw.Image(
+                  imageLogo,
+                  width: anchoImpresora == 58.0 ? 35 : 45,
+                  height: anchoImpresora == 58.0 ? 35 : 45,
+                ),
               pw.SizedBox(height: 5),
               pw.Text(
                 'COPIA - CORTE DE CAJA',
                 style: pw.TextStyle(
-                  fontSize: 14,
+                  fontSize: fTitle,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
               pw.Text(
-                nombreSucursal.toUpperCase(),
-                style: pw.TextStyle(fontSize: 10),
+                '$nombreEmpresa - ${nombreSucursal.toUpperCase()}',
+                style: pw.TextStyle(fontSize: fSubtitle),
+                textAlign: pw.TextAlign.center,
               ),
               pw.SizedBox(height: 5),
-              pw.Text(fechaHora, style: pw.TextStyle(fontSize: 8)),
+              pw.Text(fechaHora, style: pw.TextStyle(fontSize: fBase)),
               pw.Divider(borderStyle: pw.BorderStyle.dashed),
 
               if (items.isNotEmpty) ...[
@@ -186,7 +213,7 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                 pw.Text(
                   'VENTAS DEL DÍA ($totalPiezas PZS)',
                   style: pw.TextStyle(
-                    fontSize: 10,
+                    fontSize: fSubtitle,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
@@ -203,7 +230,7 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                     children: [
                       pw.Text(
                         itemsVendidos.replaceAll('c/u.', 'c/u\n'),
-                        style: pw.TextStyle(fontSize: 8),
+                        style: pw.TextStyle(fontSize: fBase),
                       ),
                       pw.Row(
                         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -211,7 +238,7 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                           pw.Text(
                             '${item['metodo'] ?? 'Efectivo'}',
                             style: pw.TextStyle(
-                              fontSize: 8,
+                              fontSize: fBase,
                               fontWeight: pw.FontWeight.bold,
                               color: PdfColors.black,
                             ),
@@ -219,7 +246,7 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                           pw.Text(
                             vendedor != '' ? 'Vend: $vendedor' : '',
                             style: pw.TextStyle(
-                              fontSize: 8,
+                              fontSize: fBase,
                               color: PdfColors.grey700,
                             ),
                           ),
@@ -231,7 +258,7 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                           pw.Text(
                             '\$${(item['precio'] as num).toDouble().toStringAsFixed(2)}',
                             style: pw.TextStyle(
-                              fontSize: 9,
+                              fontSize: fSubtitle,
                               fontWeight: pw.FontWeight.bold,
                             ),
                           ),
@@ -249,7 +276,7 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                 pw.Text(
                   'APARTADOS Y ABONOS',
                   style: pw.TextStyle(
-                    fontSize: 10,
+                    fontSize: fSubtitle,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
@@ -261,12 +288,12 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                       pw.Expanded(
                         child: pw.Text(
                           '${item['tipo']} - ${item['cliente']}',
-                          style: pw.TextStyle(fontSize: 8),
+                          style: pw.TextStyle(fontSize: fBase),
                         ),
                       ),
                       pw.Text(
                         '\$${(item['monto'] as num).toDouble().toStringAsFixed(2)}',
-                        style: pw.TextStyle(fontSize: 8),
+                        style: pw.TextStyle(fontSize: fBase),
                       ),
                     ],
                   ),
@@ -279,7 +306,7 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                 pw.Text(
                   'CAMBIOS REALIZADOS',
                   style: pw.TextStyle(
-                    fontSize: 10,
+                    fontSize: fSubtitle,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
@@ -290,16 +317,16 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                     children: [
                       pw.Text(
                         'Entró: ${item['entra']}',
-                        style: pw.TextStyle(fontSize: 8),
+                        style: pw.TextStyle(fontSize: fBase),
                       ),
                       pw.Text(
                         'Salió: ${item['sale']}',
-                        style: pw.TextStyle(fontSize: 8),
+                        style: pw.TextStyle(fontSize: fBase),
                       ),
                       pw.Text(
                         'Motivo: ${item['motivo']}',
                         style: pw.TextStyle(
-                          fontSize: 7,
+                          fontSize: fSmall,
                           color: PdfColors.grey700,
                         ),
                       ),
@@ -315,7 +342,7 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                 pw.Text(
                   'DETALLE DE GASTOS',
                   style: pw.TextStyle(
-                    fontSize: 10,
+                    fontSize: fSubtitle,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
@@ -328,13 +355,13 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                       pw.Expanded(
                         child: pw.Text(
                           '${item['concepto']} (${item['hora'] ?? ''})',
-                          style: pw.TextStyle(fontSize: 8),
+                          style: pw.TextStyle(fontSize: fBase),
                         ),
                       ),
                       pw.Text(
                         '-\$${(item['monto'] as num).toDouble().toStringAsFixed(2)}',
                         style: pw.TextStyle(
-                          fontSize: 8,
+                          fontSize: fBase,
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
@@ -350,11 +377,11 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                 children: [
                   pw.Text(
                     '+ VENTAS TOTALES',
-                    style: pw.TextStyle(fontSize: 10),
+                    style: pw.TextStyle(fontSize: fSubtitle),
                   ),
                   pw.Text(
                     '\$${ventasTotales.toStringAsFixed(2)}',
-                    style: pw.TextStyle(fontSize: 10),
+                    style: pw.TextStyle(fontSize: fSubtitle),
                   ),
                 ],
               ),
@@ -364,11 +391,17 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                 children: [
                   pw.Text(
                     '  💳 En Tarjeta',
-                    style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                    style: pw.TextStyle(
+                      fontSize: fBase,
+                      color: PdfColors.grey700,
+                    ),
                   ),
                   pw.Text(
                     '\$${ventasTarjeta.toStringAsFixed(2)}',
-                    style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                    style: pw.TextStyle(
+                      fontSize: fBase,
+                      color: PdfColors.grey700,
+                    ),
                   ),
                 ],
               ),
@@ -377,11 +410,17 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                 children: [
                   pw.Text(
                     '  📱 En Transf.',
-                    style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                    style: pw.TextStyle(
+                      fontSize: fBase,
+                      color: PdfColors.grey700,
+                    ),
                   ),
                   pw.Text(
                     '\$${ventasTransferencia.toStringAsFixed(2)}',
-                    style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                    style: pw.TextStyle(
+                      fontSize: fBase,
+                      color: PdfColors.grey700,
+                    ),
                   ),
                 ],
               ),
@@ -390,11 +429,17 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                 children: [
                   pw.Text(
                     '  💵 En Efectivo',
-                    style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                    style: pw.TextStyle(
+                      fontSize: fBase,
+                      color: PdfColors.grey700,
+                    ),
                   ),
                   pw.Text(
                     '\$${ventasEfectivo.toStringAsFixed(2)}',
-                    style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                    style: pw.TextStyle(
+                      fontSize: fBase,
+                      color: PdfColors.grey700,
+                    ),
                   ),
                 ],
               ),
@@ -404,11 +449,11 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                 children: [
                   pw.Text(
                     '- GASTOS FISICOS',
-                    style: pw.TextStyle(fontSize: 10),
+                    style: pw.TextStyle(fontSize: fSubtitle),
                   ),
                   pw.Text(
                     '\$${gastos.toStringAsFixed(2)}',
-                    style: pw.TextStyle(fontSize: 10),
+                    style: pw.TextStyle(fontSize: fSubtitle),
                   ),
                 ],
               ),
@@ -419,14 +464,14 @@ class _ContabilidadCortesViewState extends State<ContabilidadCortesView> {
                   pw.Text(
                     'ENTREGA FÍSICA',
                     style: pw.TextStyle(
-                      fontSize: 12,
+                      fontSize: fTitle,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),
                   pw.Text(
                     '\$${entregaFisicaCajero.toStringAsFixed(2)}',
                     style: pw.TextStyle(
-                      fontSize: 12,
+                      fontSize: fTitle,
                       fontWeight: pw.FontWeight.bold,
                     ),
                   ),

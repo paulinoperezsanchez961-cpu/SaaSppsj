@@ -354,7 +354,11 @@ class _TerminalCobroViewState extends State<TerminalCobroView> {
 
   Future<void> _cargarCatalogoDesdeCerebro() async {
     try {
-      var res = await http.get(Uri.parse('${ApiService.baseUrl}/pos/catalogo'));
+      // 🚨 SAAS FIX: Inyectamos token JWT
+      var res = await http.get(
+        Uri.parse('${ApiService.baseUrl}/pos/catalogo'),
+        headers: await ApiService.getAuthHeaders(),
+      );
 
       if (!mounted) {
         return;
@@ -756,15 +760,12 @@ class _TerminalCobroViewState extends State<TerminalCobroView> {
     }
 
     try {
-      var res = await http.get(
-        Uri.parse('${ApiService.baseUrl}/cupones/validar/$codigoIngresado'),
-      );
+      // 🚨 SAAS FIX: Usamos ApiService centralizado con headers JWT
+      var data = await ApiService.validarCupon(codigoIngresado);
 
       if (!mounted) {
         return;
       }
-
-      var data = jsonDecode(res.body);
 
       if (data['valido'] == true) {
         setState(() {
@@ -895,9 +896,10 @@ class _TerminalCobroViewState extends State<TerminalCobroView> {
     );
 
     try {
+      // 🚨 SAAS FIX: Headers de Autenticación JWT
       var res = await http.post(
         Uri.parse('${ApiService.baseUrl}/pos/mp/cobrar-terminal'),
-        headers: {"Content-Type": "application/json"},
+        headers: await ApiService.getAuthHeaders(),
         body: jsonEncode({"total": _total}),
       );
 
@@ -912,10 +914,12 @@ class _TerminalCobroViewState extends State<TerminalCobroView> {
         _mpPollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
           Future<void> verificarEstado() async {
             try {
+              // 🚨 SAAS FIX: Headers de Autenticación JWT
               var statusRes = await http.get(
                 Uri.parse(
                   '${ApiService.baseUrl}/pos/mp/estado-cobro/$intentId',
                 ),
+                headers: await ApiService.getAuthHeaders(),
               );
 
               if (!mounted) {

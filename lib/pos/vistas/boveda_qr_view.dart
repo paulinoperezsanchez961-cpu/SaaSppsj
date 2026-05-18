@@ -63,6 +63,17 @@ class _BovedaQRViewState extends State<BovedaQRView> {
   };
   String _tamanoActivo = '51 x 25 mm (Estándar)';
 
+  // 🚨 CORRECCIÓN 1: Evitar fuga de memoria destruyendo los controladores
+  @override
+  void dispose() {
+    _corteController.dispose();
+    _modeloController.dispose();
+    _precioController.dispose();
+    _nuevaTallaController.dispose();
+    _nuevaCantidadController.dispose();
+    super.dispose();
+  }
+
   int get totalEtiquetas {
     return _listaTallas.fold(0, (sum, item) => sum + (item['cantidad'] as int));
   }
@@ -130,8 +141,9 @@ class _BovedaQRViewState extends State<BovedaQRView> {
     });
   }
 
-  void _eliminarTalla(int index) =>
-      setState(() => _listaTallas.removeAt(index));
+  void _eliminarTalla(int index) {
+    setState(() => _listaTallas.removeAt(index));
+  }
 
   void _generarVistaPrevia() {
     if (_corteController.text.isEmpty ||
@@ -168,8 +180,15 @@ class _BovedaQRViewState extends State<BovedaQRView> {
     String nombreModelo = _modeloController.text;
     double precioProducto = double.tryParse(_precioController.text) ?? 0.0;
 
+    // 🚨 CORRECCIÓN 3: Asignar sucursal por defecto para el modelo SaaS Multi-sucursal
     List<Map<String, dynamic>> tallasParaBD = _listaTallas
-        .map((item) => {"talla": item['talla'], "cantidad": item['cantidad']})
+        .map(
+          (item) => {
+            "talla": item['talla'],
+            "cantidad": item['cantidad'],
+            "sucursal": "BODEGA CENTRAL",
+          },
+        )
         .toList();
 
     try {
@@ -177,7 +196,9 @@ class _BovedaQRViewState extends State<BovedaQRView> {
         'POST',
         Uri.parse('${ApiService.baseUrl}/pos/pre-registro'),
       );
-      request.headers.addAll(await ApiService.getAuthHeaders());
+
+      // 🚨 CORRECCIÓN 2: Usar MultipartAuthHeaders para no destruir el boundary de la foto
+      request.headers.addAll(await ApiService.getMultipartAuthHeaders());
 
       request.fields['sku'] = corteLote;
       request.fields['nombre_interno'] = nombreModelo;

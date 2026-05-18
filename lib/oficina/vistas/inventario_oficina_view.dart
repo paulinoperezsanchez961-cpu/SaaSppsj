@@ -85,7 +85,6 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
             ),
             content: SizedBox(
               width: 600,
-              // 🚨 PARCHE: SingleChildScrollView protege contra el teclado en móviles
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -162,45 +161,60 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
                         setStateDialog(() => procesando = true);
                         List<Map<String, dynamic>> productosAEnviar = [];
 
-                        // 🚨 PARCHE: replaceAll limpia la basura oculta de Windows (\r) para que no rompa el split
-                        List<String> filas = texto
-                            .replaceAll('\r', '')
-                            .split('\n');
+                        // 🚨 PARCHE: Blindaje try-catch para evitar cierres inesperados por Excel corrupto
+                        try {
+                          List<String> filas = texto
+                              .replaceAll('\r', '')
+                              .split('\n');
 
-                        for (String fila in filas) {
-                          if (fila.trim().isEmpty) {
-                            continue;
-                          }
-                          List<String> cols = fila.split('\t');
-                          if (cols.length >= 4) {
-                            String sku = cols[0].trim();
-                            String nombre = cols[1].trim();
-                            double precio =
-                                double.tryParse(cols[2].trim()) ?? 0;
-
-                            List<Map<String, dynamic>> tallasJson = [];
-                            int stockTotal = 0;
-                            List<String> paresTalla = cols[3].split(',');
-                            for (String par in paresTalla) {
-                              List<String> kv = par.split(':');
-                              if (kv.length == 2) {
-                                int cant = int.tryParse(kv[1].trim()) ?? 0;
-                                tallasJson.add({
-                                  "talla": kv[0].trim(),
-                                  "cantidad": cant,
-                                });
-                                stockTotal += cant;
-                              }
+                          for (String fila in filas) {
+                            if (fila.trim().isEmpty) {
+                              continue;
                             }
+                            List<String> cols = fila.split('\t');
+                            if (cols.length >= 4) {
+                              String sku = cols[0].trim();
+                              String nombre = cols[1].trim();
+                              double precio =
+                                  double.tryParse(cols[2].trim()) ?? 0;
 
-                            productosAEnviar.add({
-                              "sku": sku,
-                              "nombre_interno": nombre,
-                              "precio": precio,
-                              "tallas": tallasJson,
-                              "stock_total": stockTotal,
-                            });
+                              List<Map<String, dynamic>> tallasJson = [];
+                              int stockTotal = 0;
+                              List<String> paresTalla = cols[3].split(',');
+                              for (String par in paresTalla) {
+                                List<String> kv = par.split(':');
+                                if (kv.length == 2) {
+                                  int cant = int.tryParse(kv[1].trim()) ?? 0;
+                                  tallasJson.add({
+                                    "talla": kv[0].trim().toUpperCase(),
+                                    "cantidad": cant,
+                                    "sucursal":
+                                        "BODEGA CENTRAL", // 🚨 Asignación por defecto en nube
+                                  });
+                                  stockTotal += cant;
+                                }
+                              }
+
+                              productosAEnviar.add({
+                                "sku": sku,
+                                "nombre_interno": nombre,
+                                "precio": precio,
+                                "tallas": tallasJson,
+                                "stock_total": stockTotal,
+                              });
+                            }
                           }
+                        } catch (e) {
+                          setStateDialog(() => procesando = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Error crítico leyendo el Excel. Revisa el formato.',
+                              ),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
                         }
 
                         final nav = Navigator.of(contextDialog);
@@ -239,7 +253,10 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
     );
   }
 
-  List<Map<String, dynamic>> _parsearTallasOficina(dynamic tallasRawData) {
+  // 🚨 LECTOR DE TALLAS MULTI-SUCURSAL (SAAS)
+  List<Map<String, dynamic>> _parsearTallasMultiSucursal(
+    dynamic tallasRawData,
+  ) {
     List<dynamic> tallasRaw = [];
     if (tallasRawData != null) {
       if (tallasRawData is String) {
@@ -264,16 +281,26 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
                 e['cantidad']?.toString() ?? e['stock']?.toString() ?? '0',
               ) ??
               0,
+          'sucursal': (e['sucursal'] ?? 'BODEGA CENTRAL')
+              .toString()
+              .toUpperCase(),
         };
       } else {
-        return {'talla': e.toString().trim().toUpperCase(), 'cantidad': 1};
+        return {
+          'talla': e.toString().trim().toUpperCase(),
+          'cantidad': 1,
+          'sucursal': 'BODEGA CENTRAL',
+        };
       }
     }).toList();
   }
 
   void _abrirGestorResurtido(Map<String, dynamic> prod) {
-    List<Map<String, dynamic>> tallasEnEdicion = _parsearTallasOficina(
+    List<Map<String, dynamic>> tallasEnEdicion = _parsearTallasMultiSucursal(
       prod['tallas'],
+    );
+    TextEditingController nuevaSucursalCtrl = TextEditingController(
+      text: 'BODEGA CENTRAL',
     );
     TextEditingController nuevaTallaCtrl = TextEditingController();
     TextEditingController nuevaCantCtrl = TextEditingController();
@@ -291,12 +318,11 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
 
             return AlertDialog(
               title: Text(
-                'Resurtir: ${prod['sku']}',
+                'Ajustar Stock: ${prod['sku']}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               content: SizedBox(
                 width: 400,
-                // 🚨 PARCHE: ScrollView contra teclados móviles
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -307,63 +333,93 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
                           color: Colors.green.shade50,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Row(
+                        child: Column(
                           children: [
-                            Expanded(
-                              child: TextField(
-                                controller: nuevaTallaCtrl,
-                                decoration: const InputDecoration(
-                                  labelText: 'Talla',
-                                  isDense: true,
-                                  border: OutlineInputBorder(),
-                                  fillColor: Colors.white,
-                                  filled: true,
-                                ),
+                            TextField(
+                              controller: nuevaSucursalCtrl,
+                              decoration: const InputDecoration(
+                                labelText:
+                                    'Sucursal Destino (Ej: Plaza Centro)',
+                                isDense: true,
+                                border: OutlineInputBorder(),
+                                fillColor: Colors.white,
+                                filled: true,
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: nuevaCantCtrl,
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  labelText: 'Pzs',
-                                  isDense: true,
-                                  border: OutlineInputBorder(),
-                                  fillColor: Colors.white,
-                                  filled: true,
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: TextField(
+                                    controller: nuevaTallaCtrl,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Talla',
+                                      isDense: true,
+                                      border: OutlineInputBorder(),
+                                      fillColor: Colors.white,
+                                      filled: true,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.add_circle,
-                                color: Colors.green,
-                                size: 30,
-                              ),
-                              onPressed: () {
-                                String t = nuevaTallaCtrl.text
-                                    .trim()
-                                    .toUpperCase();
-                                int c = int.tryParse(nuevaCantCtrl.text) ?? 0;
-                                if (t.isNotEmpty && c > 0) {
-                                  setStateDialog(() {
-                                    int idx = tallasEnEdicion.indexWhere(
-                                      (element) => element['talla'] == t,
-                                    );
-                                    if (idx != -1) {
-                                      tallasEnEdicion[idx]['cantidad'] += c;
-                                    } else {
-                                      tallasEnEdicion.add({
-                                        'talla': t,
-                                        'cantidad': c,
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  flex: 1,
+                                  child: TextField(
+                                    controller: nuevaCantCtrl,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Pzs',
+                                      isDense: true,
+                                      border: OutlineInputBorder(),
+                                      fillColor: Colors.white,
+                                      filled: true,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.add_circle,
+                                    color: Colors.green,
+                                    size: 30,
+                                  ),
+                                  onPressed: () {
+                                    String suc = nuevaSucursalCtrl.text
+                                        .trim()
+                                        .toUpperCase();
+                                    String t = nuevaTallaCtrl.text
+                                        .trim()
+                                        .toUpperCase();
+                                    int c =
+                                        int.tryParse(nuevaCantCtrl.text) ?? 0;
+                                    if (t.isNotEmpty &&
+                                        c > 0 &&
+                                        suc.isNotEmpty) {
+                                      setStateDialog(() {
+                                        int idx = tallasEnEdicion.indexWhere(
+                                          (element) =>
+                                              element['talla'] == t &&
+                                              element['sucursal'] == suc,
+                                        );
+                                        if (idx != -1) {
+                                          tallasEnEdicion[idx]['cantidad'] =
+                                              (tallasEnEdicion[idx]['cantidad']
+                                                  as int) +
+                                              c;
+                                        } else {
+                                          tallasEnEdicion.add({
+                                            'talla': t,
+                                            'cantidad': c,
+                                            'sucursal': suc,
+                                          });
+                                        }
+                                        nuevaTallaCtrl.clear();
+                                        nuevaCantCtrl.clear();
                                       });
                                     }
-                                    nuevaTallaCtrl.clear();
-                                    nuevaCantCtrl.clear();
-                                  });
-                                }
-                              },
+                                  },
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -380,7 +436,7 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
                               dense: true,
                               contentPadding: EdgeInsets.zero,
                               title: Text(
-                                'Talla: ${tallasEnEdicion[i]['talla']}',
+                                '[${tallasEnEdicion[i]['sucursal']}] Talla: ${tallasEnEdicion[i]['talla']}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -771,7 +827,6 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
           builder: (contextBuilder, setStateDialog) {
             return AlertDialog(
               title: Text('Gestionar Oferta: ${prod['sku']}'),
-              // 🚨 PARCHE: ScrollView contra teclados móviles
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -895,6 +950,62 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
           },
         );
       },
+    );
+  }
+
+  // 🚨 UI: AGRUPACIÓN VISUAL POR SUCURSALES EN LA OFICINA
+  Widget _construirDesglosePorSucursal(dynamic tallasRaw) {
+    List<Map<String, dynamic>> tallas = _parsearTallasMultiSucursal(tallasRaw);
+    if (tallas.isEmpty) {
+      return const Text(
+        "Sin desglose de stock",
+        style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
+      );
+    }
+
+    Map<String, int> totalesPorSucursal = {};
+    Map<String, List<String>> detallesPorSucursal = {};
+
+    for (var t in tallas) {
+      String suc = t['sucursal'] ?? 'BODEGA CENTRAL';
+      totalesPorSucursal[suc] =
+          (totalesPorSucursal[suc] ?? 0) + (t['cantidad'] as int);
+
+      if (detallesPorSucursal[suc] == null) {
+        detallesPorSucursal[suc] = [];
+      }
+      detallesPorSucursal[suc]!.add("${t['talla']}: ${t['cantidad']}");
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: totalesPorSucursal.keys.map((suc) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 6.0),
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
+              children: [
+                TextSpan(
+                  text: '📍 $suc: ',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepPurple.shade700,
+                  ),
+                ),
+                TextSpan(text: detallesPorSucursal[suc]!.join("  |  ")),
+                TextSpan(
+                  text: '  (Total: ${totalesPorSucursal[suc]} pzs)',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -1190,6 +1301,11 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
                                                       fontSize: 10,
                                                     ),
                                                   ),
+                                                  const SizedBox(height: 10),
+                                                  // 🚨 DESGLOSE VISUAL DE STOCK POR SUCURSAL
+                                                  _construirDesglosePorSucursal(
+                                                    prod['tallas'],
+                                                  ),
                                                 ],
                                               ),
                                             ),
@@ -1231,6 +1347,8 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
                                       ],
                                     )
                                   : Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         ClipRRect(
                                           borderRadius: BorderRadius.circular(
@@ -1305,6 +1423,11 @@ class _InventarioOficinaViewState extends State<InventarioOficinaView> {
                                                   color: Colors.grey,
                                                   fontSize: 10,
                                                 ),
+                                              ),
+                                              const SizedBox(height: 10),
+                                              // 🚨 DESGLOSE VISUAL DE STOCK POR SUCURSAL
+                                              _construirDesglosePorSucursal(
+                                                prod['tallas'],
                                               ),
                                             ],
                                           ),

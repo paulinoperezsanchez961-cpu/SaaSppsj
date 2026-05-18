@@ -16,6 +16,11 @@ class _ConfiguracionOficinaViewState extends State<ConfiguracionOficinaView> {
   final TextEditingController _clavePosCtrl = TextEditingController();
   final TextEditingController _claveOficinaCtrl = TextEditingController();
 
+  // 🚨 NUEVOS CONTROLES: Identidad y Hardware de Impresión
+  final TextEditingController _nombreEmpresaCtrl = TextEditingController();
+  final TextEditingController _direccionEmpresaCtrl = TextEditingController();
+  double _anchoImpresora = 80.0; // Por defecto 80mm
+
   // Controles de APIs y Personalización
   final TextEditingController _mensajeTicketCtrl = TextEditingController();
   final TextEditingController _mpTokenCtrl = TextEditingController();
@@ -42,6 +47,12 @@ class _ConfiguracionOficinaViewState extends State<ConfiguracionOficinaView> {
     if (mounted) {
       setState(() {
         _logoUrl = llaves['logo_empresa'] ?? "";
+        _nombreEmpresaCtrl.text = llaves['nombre_empresa'] ?? "";
+        _direccionEmpresaCtrl.text = llaves['direccion_empresa'] ?? "";
+        _anchoImpresora =
+            double.tryParse(llaves['ancho_impresora']?.toString() ?? '80') ??
+            80.0;
+
         _mensajeTicketCtrl.text = llaves['mensaje_ticket'] ?? "";
         _mpTokenCtrl.text = llaves['mp_access_token'] ?? "";
         _mpDeviceCtrl.text = llaves['mp_device_id'] ?? "";
@@ -147,6 +158,9 @@ class _ConfiguracionOficinaViewState extends State<ConfiguracionOficinaView> {
 
     Map<String, dynamic> llavesAActualizar = {
       "logo_empresa": _logoUrl,
+      "nombre_empresa": _nombreEmpresaCtrl.text.trim(),
+      "direccion_empresa": _direccionEmpresaCtrl.text.trim(),
+      "ancho_impresora": _anchoImpresora,
       "mensaje_ticket": _mensajeTicketCtrl.text.trim(),
       "mp_access_token": _mpTokenCtrl.text.trim(),
       "mp_device_id": _mpDeviceCtrl.text.trim(),
@@ -160,9 +174,17 @@ class _ConfiguracionOficinaViewState extends State<ConfiguracionOficinaView> {
     if (!mounted) return;
 
     if (exito) {
-      // Guardar el logo y mensaje en memoria local para que la caja (motor impresión) lo lea al instante
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('caja_logo_empresa', _logoUrl);
+      await prefs.setString(
+        'caja_nombre_empresa',
+        _nombreEmpresaCtrl.text.trim(),
+      );
+      await prefs.setString(
+        'caja_direccion_empresa',
+        _direccionEmpresaCtrl.text.trim(),
+      );
+      await prefs.setDouble('caja_ancho_impresora', _anchoImpresora);
       await prefs.setString(
         'caja_mensaje_ticket',
         _mensajeTicketCtrl.text.trim(),
@@ -325,6 +347,66 @@ class _ConfiguracionOficinaViewState extends State<ConfiguracionOficinaView> {
                             ),
                           ),
                           const SizedBox(height: 20),
+                          TextField(
+                            controller: _nombreEmpresaCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Nombre de la Empresa (Para tickets)',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              prefixIcon: Icon(Icons.storefront, size: 16),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: _direccionEmpresaCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Dirección o Sucursal Principal',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              prefixIcon: Icon(Icons.location_on, size: 16),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'Ancho de tu Impresora de Tickets:',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          DropdownButtonFormField<double>(
+                            initialValue:
+                                _anchoImpresora, // 🚨 CORRECCIÓN DEL LINTER
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                              prefixIcon: Icon(Icons.print, size: 16),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 80.0,
+                                child: Text(
+                                  '80mm (Impresora de Escritorio)',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 58.0,
+                                child: Text(
+                                  '58mm (Mini Impresora Portátil)',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ],
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() => _anchoImpresora = val);
+                              }
+                            },
+                          ),
+                          const SizedBox(height: 10),
                           TextField(
                             controller: _mensajeTicketCtrl,
                             maxLines: 3,

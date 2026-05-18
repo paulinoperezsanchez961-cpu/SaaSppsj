@@ -8,11 +8,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
 class MotorImpresion {
+  // 🚨 SAAS FIX: Se usa el directorio interno de la app para evitar problemas
+  // de permisos de almacenamiento "Scoped Storage" en las versiones nuevas de Android / iOS
   static Future<Directory?> _obtenerDirectorioBase() async {
-    if (Platform.isAndroid) {
-      return await getExternalStorageDirectory();
-    } else {
+    try {
       return await getApplicationDocumentsDirectory();
+    } catch (e) {
+      debugPrint('Aviso Directorio: $e');
+      return null;
     }
   }
 
@@ -32,7 +35,7 @@ class MotorImpresion {
     final doc = pw.Document();
     pw.MemoryImage? imageLogo;
 
-    // 🚨 1. CARGAMOS CONFIGURACIÓN SAAS DESDE MEMORIA
+    // 1. CARGAMOS CONFIGURACIÓN SAAS DESDE MEMORIA
     final prefs = await SharedPreferences.getInstance();
     final String logoUrl = prefs.getString('caja_logo_empresa') ?? '';
     final String mensajePersonalizado =
@@ -47,7 +50,7 @@ class MotorImpresion {
     final double anchoImpresora =
         prefs.getDouble('caja_ancho_impresora') ?? 80.0;
 
-    // 🚨 2. DESCARGAMOS EL LOGO DE LA EMPRESA
+    // 2. DESCARGAMOS EL LOGO DE LA EMPRESA
     if (logoUrl.isNotEmpty) {
       try {
         final response = await http.get(Uri.parse(logoUrl));
@@ -63,7 +66,7 @@ class MotorImpresion {
     final fechaHora =
         '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
 
-    // 🚨 3. ESCALADO INTELIGENTE (Si es de 58mm, reducimos la fuente para evitar cortes)
+    // 3. ESCALADO INTELIGENTE (Si es de 58mm, reducimos la fuente para evitar cortes)
     double fBase = anchoImpresora == 58.0 ? 7.0 : 9.0;
     double fTitle = anchoImpresora == 58.0 ? 11.0 : 14.0;
     double fSmall = anchoImpresora == 58.0 ? 6.0 : 8.0;
@@ -302,8 +305,10 @@ class MotorImpresion {
       ),
     );
 
+    // 🚨 OPTIMIZACIÓN: Se genera el PDF una sola vez y se reutiliza para guardar y para imprimir
+    final bytesPdf = await doc.save();
+
     try {
-      final bytesPdf = await doc.save();
       final Directory? baseDir = await _obtenerDirectorioBase();
       if (baseDir != null) {
         final directorioTickets = Directory(
@@ -322,7 +327,8 @@ class MotorImpresion {
     }
 
     await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => doc.save(),
+      onLayout: (PdfPageFormat format) async => bytesPdf,
+      name: 'Ticket_Venta',
     );
   }
 
@@ -345,7 +351,7 @@ class MotorImpresion {
     final doc = pw.Document();
     pw.MemoryImage? imageLogo;
 
-    // 🚨 1. CARGAMOS CONFIGURACIÓN SAAS
+    // 1. CARGAMOS CONFIGURACIÓN SAAS
     final prefs = await SharedPreferences.getInstance();
     final String logoUrl = prefs.getString('caja_logo_empresa') ?? '';
     final String nombreEmpresa =
@@ -700,8 +706,10 @@ class MotorImpresion {
       ),
     );
 
+    // 🚨 OPTIMIZACIÓN: Generar PDF solo una vez
+    final bytesPdfCorte = await doc.save();
+
     try {
-      final bytesPdfCorte = await doc.save();
       final Directory? baseDir = await _obtenerDirectorioBase();
       if (baseDir != null) {
         final directorioCortes = Directory(
@@ -720,8 +728,8 @@ class MotorImpresion {
     }
 
     await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => doc.save(),
-      name: 'Corte_Caja_$nombreEmpresa',
+      onLayout: (PdfPageFormat format) async => bytesPdfCorte,
+      name: 'Corte_Caja_${nombreEmpresa.replaceAll(' ', '_')}',
     );
   }
 }

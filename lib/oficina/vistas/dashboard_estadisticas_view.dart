@@ -16,6 +16,10 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
 
   int _diasFiltro = 1;
 
+  // 🚨 SISTEMA MULTI-SUCURSAL (SAAS)
+  List<String> _sucursalesDisponibles = ['Todas'];
+  String _sucursalSeleccionada = 'Todas';
+
   // Métricas Financieras Exactas
   double _ingresosReales = 0.0;
   double _gastosReales = 0.0;
@@ -24,7 +28,7 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
   double _totalTarjeta = 0.0;
   double _totalTransferencia = 0.0;
 
-  // 🚨 Desglose por Sucursal
+  // Desglose por Sucursal
   Map<String, Map<String, double>> _ingresosPorSucursal = {};
 
   // Métricas Operativas Exactas
@@ -55,7 +59,9 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
   }
 
   Future<void> _cargarMetricasRigurosas() async {
-    setState(() => _cargando = true);
+    setState(() {
+      _cargando = true;
+    });
 
     try {
       DateTime hoy = DateTime.now();
@@ -81,6 +87,41 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
       final fijos = await ApiService.obtenerGastosFijos();
       final inventario = await ApiService.obtenerInventario();
 
+      // 🚨 EXTRAER SUCURSALES ÚNICAS
+      Set<String> sucursalesSet = {'Todas'};
+      for (var v in ventas) {
+        sucursalesSet.add(v['sucursal_nombre'] ?? 'Mostrador General');
+      }
+      for (var c in cortes) {
+        sucursalesSet.add(c['sucursal_nombre'] ?? 'Mostrador General');
+      }
+
+      _sucursalesDisponibles = sucursalesSet.toList();
+      if (!_sucursalesDisponibles.contains(_sucursalSeleccionada)) {
+        _sucursalSeleccionada = 'Todas';
+      }
+
+      // 🚨 FILTRAR DATOS POR SUCURSAL
+      final ventasAProcesar = _sucursalSeleccionada == 'Todas'
+          ? ventas
+          : ventas
+                .where(
+                  (v) =>
+                      (v['sucursal_nombre'] ?? 'Mostrador General') ==
+                      _sucursalSeleccionada,
+                )
+                .toList();
+
+      final cortesAProcesar = _sucursalSeleccionada == 'Todas'
+          ? cortes
+          : cortes
+                .where(
+                  (c) =>
+                      (c['sucursal_nombre'] ?? 'Mostrador General') ==
+                      _sucursalSeleccionada,
+                )
+                .toList();
+
       double sumIngresosBrutos = 0,
           sumGastosComisiones = 0,
           sumGastosCortes = 0;
@@ -93,14 +134,38 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
       Map<String, double> mapDias = {};
       Map<String, double> mapHoras = {};
       Map<String, double> mapGastosMotivos = {};
-      Map<String, Map<String, double>> mapSucursales =
-          {}; // 🚨 NUEVO: Mapa de sucursales
+      Map<String, Map<String, double>> mapSucursales = {};
 
+      // 🚨 CALCULAR STOCK AISLADO POR SUCURSAL
       for (var p in inventario) {
-        stockTotal += int.tryParse(p['stock_bodega'].toString()) ?? 0;
+        if (_sucursalSeleccionada == 'Todas') {
+          stockTotal += int.tryParse(p['stock_bodega']?.toString() ?? '0') ?? 0;
+        } else {
+          try {
+            List<dynamic> tallasRaw = [];
+            if (p['tallas'] != null) {
+              if (p['tallas'] is String) {
+                tallasRaw = jsonDecode(p['tallas']);
+              } else if (p['tallas'] is List) {
+                tallasRaw = p['tallas'];
+              }
+            }
+            for (var t in tallasRaw) {
+              String suc = (t['sucursal'] ?? 'BODEGA CENTRAL')
+                  .toString()
+                  .toUpperCase();
+              if (suc == _sucursalSeleccionada.toUpperCase()) {
+                stockTotal +=
+                    int.tryParse(t['cantidad']?.toString() ?? '0') ?? 0;
+              }
+            }
+          } catch (e) {
+            debugPrint('Aviso JSON Stock: $e');
+          }
+        }
       }
 
-      for (var v in ventas) {
+      for (var v in ventasAProcesar) {
         double monto = double.tryParse(v['monto'].toString()) ?? 0;
         String metodo = v['metodo_pago'] ?? 'Efectivo';
         String tipo = v['tipo'] ?? '';
@@ -108,11 +173,8 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
         int cant = int.tryParse(v['cantidad'].toString()) ?? 0;
         String fechaFmt = v['fecha_fmt'] ?? '';
         String horaFmt = v['hora_fmt'] ?? '';
-        String sucursal =
-            v['sucursal_nombre'] ??
-            'Mostrador General'; // 🚨 Extraemos la sucursal
+        String sucursal = v['sucursal_nombre'] ?? 'Mostrador General';
 
-        // Inicializamos el contador de la sucursal si no existe
         if (!mapSucursales.containsKey(sucursal)) {
           mapSucursales[sucursal] = {
             'efectivo': 0.0,
@@ -160,7 +222,7 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
           sumGastosComisiones += monto.abs();
         }
 
-        // 🚨 DETECCIÓN INTELIGENTE DE MÉTODOS DE PAGO (GLOBAL Y POR SUCURSAL)
+        // 🚨 DETECCIÓN INTELIGENTE DE MÉTODOS DE PAGO
         mapSucursales[sucursal]!['total'] =
             (mapSucursales[sucursal]!['total'] ?? 0) + monto;
 
@@ -175,7 +237,7 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
           mapSucursales[sucursal]!['transferencia'] =
               (mapSucursales[sucursal]!['transferencia'] ?? 0) + monto;
         } else {
-          sumEf += monto; // Efectivo físico y OXXO
+          sumEf += monto;
           mapSucursales[sucursal]!['efectivo'] =
               (mapSucursales[sucursal]!['efectivo'] ?? 0) + monto;
         }
@@ -223,7 +285,7 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
         }
       }
 
-      for (var c in cortes) {
+      for (var c in cortesAProcesar) {
         DateTime? fechaCorte;
         try {
           if (c['fecha_corte'] != null) {
@@ -271,7 +333,9 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
       }
 
       double gastosExtrasCaja = sumGastosCortes - sumGastosComisiones;
-      if (gastosExtrasCaja < 0) gastosExtrasCaja = 0.0;
+      if (gastosExtrasCaja < 0) {
+        gastosExtrasCaja = 0.0;
+      }
 
       sumEf -= gastosExtrasCaja;
 
@@ -315,8 +379,7 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
           _totalTarjeta = sumTar;
           _totalTransferencia = sumTrans;
 
-          _ingresosPorSucursal =
-              mapSucursales; // 🚨 Asignamos el mapa de sucursales
+          _ingresosPorSucursal = mapSucursales;
 
           _piezasVendidas = sumPiezas;
           _totalApartados = sumApartados;
@@ -350,13 +413,17 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
     } catch (e) {
       debugPrint("Error al calcular métricas: $e");
       if (mounted) {
-        setState(() => _cargando = false);
+        setState(() {
+          _cargando = false;
+        });
       }
     }
   }
 
   Future<void> _pedirReporteIA() async {
-    setState(() => _generandoReporte = true);
+    setState(() {
+      _generandoReporte = true;
+    });
     double neto = _ingresosReales - _gastosReales - _gastosFijosCalculados;
 
     String strVendedores = _ventasPorVendedor.entries
@@ -376,10 +443,10 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
     String promptRiguroso =
         """
     INSTRUCCIÓN DE SISTEMA: Actúa como el Director Financiero (CFO) de esta empresa. 
-    Analiza de forma ultra precisa y matemática este volcado de datos operativos de los últimos $_diasFiltro días y genera un INFORME EJECUTIVO PROFUNDO (máximo 4 párrafos, usa viñetas). NUNCA inventes números.
+    Analiza de forma ultra precisa y matemática este volcado de datos operativos de los últimos $_diasFiltro días de la sucursal seleccionada ($_sucursalSeleccionada) y genera un INFORME EJECUTIVO PROFUNDO (máximo 4 párrafos, usa viñetas). NUNCA inventes números.
     Debes mencionar el flujo de caja, el rendimiento comparativo de las sucursales, la eficiencia del inventario y dar 2 recomendaciones claras.
 
-    *** DATOS FINANCIEROS GLOBALES ***
+    *** DATOS FINANCIEROS GLOBALES ($_sucursalSeleccionada) ***
     - Ingresos Brutos: \$${_ingresosReales.toStringAsFixed(2)}
     - Desglose -> Efectivo: \$${_totalEfectivo.toStringAsFixed(2)} | Tarjetas/Web: \$${_totalTarjeta.toStringAsFixed(2)} | Transferencias: \$${_totalTransferencia.toStringAsFixed(2)}
     - Gastos y Egresos: \$${(_gastosReales + _gastosFijosCalculados).toStringAsFixed(2)}
@@ -390,7 +457,7 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
 
     *** DATOS OPERATIVOS ***
     - Artículos Vendidos: $_piezasVendidas.
-    - Stock Global Actual: $_stockBodegaActual piezas.
+    - Stock Actual Detectado: $_stockBodegaActual piezas.
     - Nuevos Apartados/Reservas: $_totalApartados.
     - Cambios Físicos/Devoluciones: $_totalCambios.
     - Día de Mayor Flujo: $_mejorDia
@@ -404,8 +471,12 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
 
     final respuesta = await ApiService.preguntarALaIA(promptRiguroso);
 
-    if (!mounted) return;
-    setState(() => _generandoReporte = false);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _generandoReporte = false;
+    });
 
     showDialog(
       context: context,
@@ -475,52 +546,95 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
       spacing: 10,
       runSpacing: 10,
       children: [
+        // 🚨 NUEVO: DROPDOWN DE SUCURSAL
         Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.blue.shade100),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _sucursalSeleccionada,
+              icon: const Icon(Icons.storefront, size: 16, color: Colors.blue),
+              items: _sucursalesDisponibles.map((String sucursal) {
+                return DropdownMenuItem<String>(
+                  value: sucursal,
+                  child: Text(
+                    sucursal,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue.shade800,
+                    ),
+                  ),
+                );
+              }).toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    _sucursalSeleccionada = val;
+                  });
+                  _cargarMetricasRigurosas();
+                }
+              },
+            ),
+          ),
+        ),
+
+        // DROPDOWN DE FECHA
+        Container(
+          height: 48,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: Colors.grey.shade100,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: Colors.black12),
           ),
-          child: DropdownButton<int>(
-            value: _diasFiltro,
-            underline: const SizedBox(),
-            items: const [
-              DropdownMenuItem(
-                value: 1,
-                child: Text(
-                  'Solo Hoy (1D)',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<int>(
+              value: _diasFiltro,
+              items: const [
+                DropdownMenuItem(
+                  value: 1,
+                  child: Text(
+                    'Solo Hoy (1D)',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
                 ),
-              ),
-              DropdownMenuItem(
-                value: 7,
-                child: Text(
-                  'Últimos 7 Días',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                DropdownMenuItem(
+                  value: 7,
+                  child: Text(
+                    'Últimos 7 Días',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
                 ),
-              ),
-              DropdownMenuItem(
-                value: 30,
-                child: Text(
-                  'Último Mes (30D)',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                DropdownMenuItem(
+                  value: 30,
+                  child: Text(
+                    'Último Mes (30D)',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
                 ),
-              ),
-              DropdownMenuItem(
-                value: -1,
-                child: Text(
-                  'Histórico Completo',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                DropdownMenuItem(
+                  value: -1,
+                  child: Text(
+                    'Histórico Completo',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
                 ),
-              ),
-            ],
-            onChanged: (val) {
-              if (val != null) {
-                setState(() => _diasFiltro = val);
-                _cargarMetricasRigurosas();
-              }
-            },
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    _diasFiltro = val;
+                  });
+                  _cargarMetricasRigurosas();
+                }
+              },
+            ),
           ),
         ),
         ElevatedButton.icon(
@@ -740,149 +854,158 @@ class _DashboardEstadisticasViewState extends State<DashboardEstadisticasView> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                GridView.count(
-                  crossAxisCount: columnasGrid,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio:
-                      proporcionTarjetas *
-                      0.85, // Un poco más alta para que quepan los 3 métodos
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: _ingresosPorSucursal.entries.map((e) {
-                    String sucName = e.key;
-                    double sTotal = e.value['total'] ?? 0;
-                    double sEf = e.value['efectivo'] ?? 0;
-                    double sTar = e.value['tarjeta'] ?? 0;
-                    double sTrans = e.value['transferencia'] ?? 0;
+                if (_ingresosPorSucursal.isEmpty)
+                  const Text(
+                    'No hay registros de ventas para desglosar.',
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  )
+                else
+                  GridView.count(
+                    crossAxisCount: columnasGrid,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    childAspectRatio:
+                        proporcionTarjetas *
+                        0.85, // Un poco más alta para que quepan los 3 métodos
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: _ingresosPorSucursal.entries.map((e) {
+                      String sucName = e.key;
+                      double sTotal = e.value['total'] ?? 0;
+                      double sEf = e.value['efectivo'] ?? 0;
+                      double sTar = e.value['tarjeta'] ?? 0;
+                      double sTrans = e.value['transferencia'] ?? 0;
 
-                    return Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.black12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
-                            blurRadius: 5,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.storefront,
-                                color: Colors.blueGrey.shade700,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  sucName.toUpperCase(),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 11,
-                                    color: Colors.blueGrey.shade900,
+                      return Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.black12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.02),
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.storefront,
+                                  color: Colors.blueGrey.shade700,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    sucName.toUpperCase(),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                      color: Colors.blueGrey.shade900,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-                            ],
-                          ),
-                          const Divider(height: 20),
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              '\$${sTotal.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.black87,
+                              ],
+                            ),
+                            const Divider(height: 20),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                '\$${sTotal.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.black87,
+                                ),
                               ),
                             ),
-                          ),
-                          const Text(
-                            'INGRESO TOTAL',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1,
+                            const Text(
+                              'INGRESO TOTAL',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.grey,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1,
+                              ),
                             ),
-                          ),
-                          const Spacer(),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                '💳 Tarjeta:',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.grey,
+                            const Spacer(),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  '💳 Tarjeta:',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey,
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                '\$${sTar.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.blue.shade700,
+                                Text(
+                                  '\$${sTar.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue.shade700,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                '📱 Transf:',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.grey,
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  '📱 Transf:',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey,
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                '\$${sTrans.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.purple.shade700,
+                                Text(
+                                  '\$${sTrans.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.purple.shade700,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                '💵 Efectivo:',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.grey,
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  '💵 Efectivo:',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey,
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                '\$${sEf.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green.shade700,
+                                Text(
+                                  '\$${sEf.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green.shade700,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
 
                 const SizedBox(height: 30),
 

@@ -260,7 +260,7 @@ class _PromotoresVendedoresViewState extends State<PromotoresVendedoresView> {
     }
   }
 
-  // 🚨 REIMPRESIÓN MARCA BLANCA SAAS
+  // 🚨 REIMPRESIÓN MARCA BLANCA SAAS (Adaptativo a 58mm y 80mm)
   Future<void> _imprimirDobleTicket(
     String nombre,
     String codigo,
@@ -270,9 +270,13 @@ class _PromotoresVendedoresViewState extends State<PromotoresVendedoresView> {
     final doc = pw.Document();
     pw.MemoryImage? imageLogo;
 
-    // 🚨 DESCARGAMOS EL LOGO DEL NEGOCIO LOCAL DESDE MEMORIA
+    // 🚨 DESCARGAMOS EL LOGO, NOMBRE Y ANCHO DEL NEGOCIO LOCAL DESDE MEMORIA
     final prefs = await SharedPreferences.getInstance();
     final String logoUrl = prefs.getString('caja_logo_empresa') ?? '';
+    final String nombreEmpresa =
+        prefs.getString('caja_nombre_empresa') ?? 'SISTEMA DE COMISIONES';
+    final double anchoImpresora =
+        prefs.getDouble('caja_ancho_impresora') ?? 80.0;
 
     if (logoUrl.isNotEmpty) {
       try {
@@ -289,35 +293,50 @@ class _PromotoresVendedoresViewState extends State<PromotoresVendedoresView> {
     final fecha =
         '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
 
+    // 🚨 Escalado dinámico según el tamaño de la impresora
+    double fBase = anchoImpresora == 58.0 ? 6.0 : 8.0;
+    double fTitle = anchoImpresora == 58.0 ? 11.0 : 14.0;
+    double fSub = anchoImpresora == 58.0 ? 7.0 : 9.0;
+    double fLogo = anchoImpresora == 58.0 ? 25.0 : 35.0;
+
     pw.Widget construirBloqueRecibo(String tipoCopia) {
       return pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
-          if (imageLogo != null) pw.Image(imageLogo, width: 35, height: 35),
+          if (imageLogo != null)
+            pw.Image(imageLogo, width: fLogo, height: fLogo),
           pw.SizedBox(height: 5),
           pw.Text(
+            nombreEmpresa.toUpperCase(),
+            style: pw.TextStyle(fontSize: fSub, fontWeight: pw.FontWeight.bold),
+            textAlign: pw.TextAlign.center,
+          ),
+          pw.Text(
             'RECIBO DE PAGO',
-            style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+            style: pw.TextStyle(
+              fontSize: fTitle,
+              fontWeight: pw.FontWeight.bold,
+            ),
           ),
           pw.Text(
             'LIQUIDACIÓN DE COMISIONES',
-            style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+            style: pw.TextStyle(fontSize: fSub, fontWeight: pw.FontWeight.bold),
           ),
           pw.Text(
             tipoCopia,
-            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+            style: pw.TextStyle(fontSize: fBase, color: PdfColors.grey600),
           ),
           pw.SizedBox(height: 5),
-          pw.Text('Fecha: $fecha', style: const pw.TextStyle(fontSize: 8)),
+          pw.Text('Fecha: $fecha', style: pw.TextStyle(fontSize: fBase)),
           pw.Divider(borderStyle: pw.BorderStyle.dashed),
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Text('Promotor:', style: const pw.TextStyle(fontSize: 8)),
+              pw.Text('Promotor:', style: pw.TextStyle(fontSize: fBase)),
               pw.Text(
                 nombre.toUpperCase(),
                 style: pw.TextStyle(
-                  fontSize: 8,
+                  fontSize: fBase,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
@@ -326,18 +345,15 @@ class _PromotoresVendedoresViewState extends State<PromotoresVendedoresView> {
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Text('Código:', style: const pw.TextStyle(fontSize: 8)),
-              pw.Text(codigo, style: const pw.TextStyle(fontSize: 8)),
+              pw.Text('Código:', style: pw.TextStyle(fontSize: fBase)),
+              pw.Text(codigo, style: pw.TextStyle(fontSize: fBase)),
             ],
           ),
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Text(
-                'Piezas Pagadas:',
-                style: const pw.TextStyle(fontSize: 8),
-              ),
-              pw.Text('$piezas pzs', style: const pw.TextStyle(fontSize: 8)),
+              pw.Text('Piezas Pagadas:', style: pw.TextStyle(fontSize: fBase)),
+              pw.Text('$piezas pzs', style: pw.TextStyle(fontSize: fBase)),
             ],
           ),
           pw.Divider(borderStyle: pw.BorderStyle.dashed),
@@ -347,25 +363,25 @@ class _PromotoresVendedoresViewState extends State<PromotoresVendedoresView> {
               pw.Text(
                 'TOTAL PAGADO',
                 style: pw.TextStyle(
-                  fontSize: 12,
+                  fontSize: fSub + 2,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
               pw.Text(
                 '\$${pago.toStringAsFixed(2)}',
                 style: pw.TextStyle(
-                  fontSize: 12,
+                  fontSize: fSub + 2,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
             ],
           ),
           pw.SizedBox(height: 15),
-          pw.Text('Firma Recibido:', style: const pw.TextStyle(fontSize: 8)),
+          pw.Text('Firma Recibido:', style: pw.TextStyle(fontSize: fBase)),
           pw.SizedBox(height: 15),
           pw.Text(
             '__________________________________',
-            style: const pw.TextStyle(fontSize: 8),
+            style: pw.TextStyle(fontSize: fBase),
           ),
           pw.SizedBox(height: 5),
         ],
@@ -374,8 +390,8 @@ class _PromotoresVendedoresViewState extends State<PromotoresVendedoresView> {
 
     doc.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(
-          80 * PdfPageFormat.mm,
+        pageFormat: PdfPageFormat(
+          anchoImpresora * PdfPageFormat.mm,
           double.infinity,
           marginAll: 5 * PdfPageFormat.mm,
         ),
@@ -388,10 +404,7 @@ class _PromotoresVendedoresViewState extends State<PromotoresVendedoresView> {
               pw.SizedBox(height: 10),
               pw.Text(
                 '- - - - - - CORTE AQUÍ - - - - - -',
-                style: const pw.TextStyle(
-                  fontSize: 8,
-                  color: PdfColors.grey700,
-                ),
+                style: pw.TextStyle(fontSize: fBase, color: PdfColors.grey700),
               ),
               pw.SizedBox(height: 15),
               construirBloqueRecibo("COPIA NEGOCIO (GASTO DE CAJA)"),
